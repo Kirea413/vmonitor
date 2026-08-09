@@ -60,7 +60,9 @@ UninstallDisplayIcon={app}\{#AppExeName}
 ; ウィザードの見た目
 WizardStyle=modern
 WizardSmallImageFile=
-SetupIconFile=
+; tools\generate-icons.ps1 が作る。インストーラー本体と
+; 「プログラムの追加と削除」に出るアイコンになる。
+SetupIconFile=..\tools\icons\vmonitor.ico
 
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"

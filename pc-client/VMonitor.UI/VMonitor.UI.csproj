@@ -33,6 +33,13 @@
       換算された値で返り、映像の縦横比とタッチ座標がずれる。
     -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!--
+      アイコンは tools\generate-icons.ps1 が作る。
+      16/32/48/256px を 1 つの .ico にまとめてあり、
+      タスクバーとエクスプローラーがそれぞれ適した大きさを選ぶ。
+    -->
+    <ApplicationIcon>..\..\tools\icons\vmonitor.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>
