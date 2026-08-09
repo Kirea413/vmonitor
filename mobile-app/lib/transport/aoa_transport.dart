@@ -89,17 +89,35 @@ class AoaTransport implements Transport {
     }
   }
 
+  /// 状態通知の共有ストリーム。
+  ///
+  /// 一度だけ作って使い回す。
+  ///
+  /// `receiveBroadcastStream()` は呼ぶたびに別のストリームを作り、
+  /// そのたびにネイティブ側へ購読を張り直す。ところが受け口は 1 つしか
+  /// 無いので、あとから来たものが前のものを上書きし、
+  /// **どれか 1 つが購読をやめた時点で受け口が null になる**。
+  ///
+  /// 探索画面と [AoaTransport] の両方が購読していたため、映像画面へ
+  /// 引き継ぐときに探索画面側が解除された時点で通知が死んでいた。
+  /// その結果、ケーブルを抜いても PC 側が落ちても何も起きず、
+  /// 端末は固まったように見えていた。
+  static Stream<({String state, String? detail})>? _sharedStates;
+
   /// 接続状態の変化を通知するストリーム。
   ///
   /// `state` は attached / connected / detached / error のいずれか。
   static Stream<({String state, String? detail})> stateChanges() {
-    return _states.receiveBroadcastStream().map((dynamic event) {
-      final map = (event as Map).cast<Object?, Object?>();
-      return (
-        state: map['state'] as String? ?? 'unknown',
-        detail: map['detail'] as String?,
-      );
-    });
+    return _sharedStates ??= _states
+        .receiveBroadcastStream()
+        .map((dynamic event) {
+          final map = (event as Map).cast<Object?, Object?>();
+          return (
+            state: map['state'] as String? ?? 'unknown',
+            detail: map['detail'] as String?,
+          );
+        })
+        .asBroadcastStream();
   }
 
   // ─── 接続 ─────────────────────────────────────────────────────────────

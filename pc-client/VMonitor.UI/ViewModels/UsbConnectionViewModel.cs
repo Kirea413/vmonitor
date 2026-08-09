@@ -20,14 +20,17 @@ public sealed class UsbConnectionViewModel : INotifyPropertyChanged
     {
         _server = server ?? throw new ArgumentNullException(nameof(server));
 
-        // 繋がっているときも押せるようにする。
+        // ケーブルで端末が見えているときだけ押せる。
         //
-        // 以前は接続中に無効化していたが、それだと「繋がっている状態で
-        // 押しても反応がない」ことになる。押されたら繋ぎ直して、
-        // スマホ側に改めて承認を出すのが期待どおりの動き。
+        // 「反応しない」を直したとき常に押せるようにしたが、行き過ぎだった。
+        // 相手が居ない、あるいは相手に vmonitor が入っていない状態で
+        // 押せてしまうと、待っても何も起きない理由が分からない。
+        //
+        // 繋がっている最中は押せる。押されたら繋ぎ直して、
+        // スマホ側に改めて承認を出す。
         ConnectCommand = new RelayCommand(
-            execute: _ => _server.ConnectUsbNow(),
-            canExecute: _ => true);
+            execute:    _ => _server.ConnectUsbNow(),
+            canExecute: _ => _server.IsUsbLinkUp);
 
         DisconnectCommand = new RelayCommand(
             execute: _ => _server.DisconnectUsb(),

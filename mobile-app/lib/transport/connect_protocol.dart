@@ -25,6 +25,14 @@ class ConnectProtocol {
 
   static const String _typeRequest = 'connect_request';
   static const String _typeResponse = 'connect_response';
+  static const String _typeBye = 'bye';
+
+  /// 「こちらから切ります」と伝える。
+  ///
+  /// 送らなくても相手はいずれ気づくが、応答が絶えるのを待つぶん
+  /// 十数秒かかる。そのあいだ PC には「接続中」が出たままになる。
+  /// 自分で切ったときくらいは、すぐ伝えたほうがよい。
+  static Uint8List bye() => _encode({'type': _typeBye});
 
   /// 「繋ぎたい」と伝える。
   static Uint8List request(String initiator) => _encode({

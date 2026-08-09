@@ -36,9 +36,32 @@ public sealed class ConnectionServer
     /// </summary>
     private DisplaySettings _displaySettings = DisplaySettings.Default;
 
-    /// <summary>ディスプレイ設定を反映する。次に確立するセッションから効く。</summary>
+    /// <summary>
+    /// いま動いているセッションに、設定の変更を伝えるための合図。
+    /// </summary>
+    /// <remarks>
+    /// 拡大率は仮想ディスプレイを作り直さないと変わらない。以前は
+    /// 「次の接続から有効」だったが、確かめるたびに繋ぎ直すのは手間で、
+    /// 効いているのかどうかも分かりにくい。設定を保存したら、その場で
+    /// 作り直すようにする。
+    /// </remarks>
+    private Action? _rebuildCapture;
+
+    /// <summary>ディスプレイ設定を反映する。繋がっていればその場で作り直す。</summary>
     public void UpdateDisplaySettings(DisplaySettings settings)
-        => _displaySettings = settings ?? DisplaySettings.Default;
+    {
+        var updated = settings ?? DisplaySettings.Default;
+
+        // 作り直しが要るのは、見え方そのものが変わるものだけ。
+        // タッチの可否は次のフレームから効くので、作り直す必要がない。
+        bool needsRebuild =
+            updated.ScalePercent          != _displaySettings.ScalePercent ||
+            updated.RequireVirtualDisplay != _displaySettings.RequireVirtualDisplay;
+
+        _displaySettings = updated;
+
+        if (needsRebuild) _rebuildCapture?.Invoke();
+    }
 
     public ConnectionServer(
         ConnectionViewModel vm,
@@ -762,8 +785,25 @@ public sealed class ConnectionServer
     /// <summary>往復時間を測るための時計。セッションごとに作り直す。</summary>
     private readonly System.Diagnostics.Stopwatch _probeClock = System.Diagnostics.Stopwatch.StartNew();
 
-    private async Task SendLatencyProbesAsync(ITransport transport, CancellationToken ct)
+    /// <summary>相手から最後に応答があった時刻。</summary>
+    private long _lastPongMs;
+
+    /// <summary>
+    /// これだけ応答が無ければ、相手は居なくなったとみなす。
+    /// </summary>
+    /// <remarks>
+    /// USB では、スマホのアプリが終了してもデバイスはアクセサリーモードの
+    /// まま残る。PC 側の読み出しはタイムアウトを繰り返すだけで終わらず、
+    /// セッションが延々と生き続けてしまう。切断に気づけないため、
+    /// 画面には「接続中」が出たままになる。
+    /// </remarks>
+    private const int PeerSilenceLimitMs = 12_000;
+
+    private async Task SendLatencyProbesAsync(
+        ITransport transport, CancellationTokenSource sessionCts, CancellationToken ct)
     {
+        _lastPongMs = _probeClock.ElapsedMilliseconds;
+
         try
         {
             while (!ct.IsCancellationRequested)
@@ -774,10 +814,27 @@ public sealed class ConnectionServer
                     $"{{\"type\":\"ping\",\"t\":{_probeClock.ElapsedMilliseconds}}}");
 
                 await transport.SendAsync(payload, ChannelId.Control, ct);
+
+                // 応答が絶えたら、こちらから畳む。
+                long silence = _probeClock.ElapsedMilliseconds - Volatile.Read(ref _lastPongMs);
+
+                if (silence < PeerSilenceLimitMs) continue;
+
+                _logger.Info("ConnectionServer",
+                    $"応答が {silence / 1000} 秒ありません。切断とみなします。");
+
+                sessionCts.Cancel();
+                return;
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { /* 計測が止まってもセッションは続ける */ }
+        catch (Exception ex)
+        {
+            // 送れなくなったということは、相手が居ない。
+            _logger.Info("ConnectionServer", $"応答の確認に失敗しました: {ex.Message}");
+
+            try { sessionCts.Cancel(); } catch { }
+        }
     }
 
     /// <summary>端末から返ってきた応答から往復時間を求めて記録する。</summary>
@@ -792,9 +849,12 @@ public sealed class ConnectionServer
 
             if (!document.RootElement.TryGetProperty("t", out var t)) return;
 
-            long roundTripMs = _probeClock.ElapsedMilliseconds - t.GetInt64();
+            long now = _probeClock.ElapsedMilliseconds;
 
-            _logger.Info("ConnectionServer", $"Round trip to device: {roundTripMs} ms");
+            // 生きている証。これが途絶えたら切断とみなす。
+            Volatile.Write(ref _lastPongMs, now);
+
+            _logger.Info("ConnectionServer", $"Round trip to device: {now - t.GetInt64()} ms");
         }
         catch
         {
@@ -1078,6 +1138,22 @@ public sealed class ConnectionServer
         }
     }
 
+    /// <summary>スマホ側から「切ります」と伝えてきたか。</summary>
+    private static bool IsGoodbye(ReadOnlySpan<byte> payload)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(payload.ToArray());
+
+            return document.RootElement.TryGetProperty("type", out var type) &&
+                   type.GetString() == "bye";
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>制御メッセージが接続要求かどうか。</summary>
     private static bool IsConnectRequest(ReadOnlySpan<byte> payload)
     {
@@ -1132,8 +1208,15 @@ public sealed class ConnectionServer
 
             if (await Task.WhenAny(next, timeout) == timeout)
             {
+                // 返事が無いのは、たいてい相手側に vmonitor が無いか
+                // 起動していない場合。ケーブルは挿さっているので、
+                // 「待っています」のままだと理由が分からない。
                 _logger.Info("ConnectionServer", "スマホからの返事がありませんでした");
-                SetTransportState(transportType, "スマホから返事がありませんでした", connected: false);
+
+                SetTransportState(transportType,
+                    "スマホから返事がありません。vmonitor が入っているか、起動しているか確認してください",
+                    connected: false);
+
                 return (false, next);
             }
 
@@ -1403,6 +1486,14 @@ public sealed class ConnectionServer
     {
         var outcome = SessionOutcome.Completed;
 
+        // このセッションだけを畳むための札。
+        //
+        // 応答が絶えたときに、外側の待ち受けを止めずにここだけ終わらせる。
+        // これが無いと、相手が居なくなっても読み出しがタイムアウトを
+        // 繰り返すだけで、セッションが永遠に生き続ける。
+        using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        ct = sessionCts.Token;
+
         var streamer = new VMonitor.Streamer.Streamer();
 
         // 画面ミラー元とタッチ注入先
@@ -1486,13 +1577,19 @@ public sealed class ConnectionServer
                 // 低い解像度で作れば、そのぶん大きく見える。
                 // スマホの画素数そのままだと Windows の文字が細かすぎる。
                 var resolution = _displaySettings.ApplyScale(requested);
+                int effective  = _displaySettings.EffectiveScalePercent(requested);
 
                 if (resolution != requested)
                 {
+                    var note = effective < _displaySettings.SafeScalePercent
+                        ? $"（{_displaySettings.SafeScalePercent}% を指定しましたが、" +
+                          $"この画面では {effective}% が上限です）"
+                        : string.Empty;
+
                     _logger.Info("ConnectionServer",
-                        $"拡大率 {_displaySettings.SafeScalePercent}%: " +
+                        $"拡大率 {effective}%: " +
                         $"{requested.Width}x{requested.Height} → " +
-                        $"{resolution.Width}x{resolution.Height}");
+                        $"{resolution.Width}x{resolution.Height}{note}");
                 }
 
                 // 動いているものを先に畳む
@@ -1530,6 +1627,56 @@ public sealed class ConnectionServer
                         {
                             _logger.Warn("ConnectionServer",
                                 "Virtual display did not appear as a capturable output");
+                        }
+                        else
+                        {
+                            // 頼んだ大きさで出来たか確かめる。
+                            //
+                            // Windows は受け付けられない解像度を要求されると、
+                            // 断らずに既定のモードで作る。黙って別物が出来るので、
+                            // 「拡大率が効かない」という形でしか気づけない。
+                            // 頼んだ大きさで出来なかったら、拡大率を諦めて作り直す。
+                            //
+                            // Windows は受け付けられない解像度を断らず、既定の
+                            // 横長モードで作る。縦長の端末にそれを映すと比率が
+                            // 崩れて使い物にならない。歪んだ画面を見せるくらいなら、
+                            // 拡大なしの正しい比率に戻すほうがよい。
+                            bool mismatched = false;
+
+                            foreach (var actual in SafeListOutputsDetailed())
+                            {
+                                if (actual.DeviceName != deviceName) continue;
+
+                                if (actual.Width  == resolution.Width &&
+                                    actual.Height == resolution.Height) break;
+
+                                _logger.Warn("ConnectionServer",
+                                    $"要求した解像度が通りませんでした: " +
+                                    $"{resolution.Width}x{resolution.Height} を要求し、" +
+                                    $"{actual.Width}x{actual.Height} が作られました。" +
+                                    "拡大率をやめて作り直します。");
+
+                                mismatched = true;
+                                break;
+                            }
+
+                            // 一度だけやり直す。等倍でも通らないなら、
+                            // 拡大率とは別の問題なのでそのまま進む。
+                            if (mismatched && resolution != requested)
+                            {
+                                virtualDisplay.Disconnect();
+                                await Task.Delay(800, ct);
+
+                                if (virtualDisplay.Connect(requested.Width, requested.Height))
+                                {
+                                    resolution = requested;
+                                    deviceName = await WaitForNewOutputAsync(outputsBefore, ct);
+
+                                    _logger.Info("ConnectionServer",
+                                        $"等倍で作り直しました: " +
+                                        $"{requested.Width}x{requested.Height}");
+                                }
+                            }
                         }
                     }
                     else
@@ -1614,10 +1761,30 @@ public sealed class ConnectionServer
 
             await StartStreamingAsync();
 
+            // 設定を保存したら、その場で作り直せるようにしておく。
+            //
+            // 呼ばれるのは UI スレッド。ここで待つと画面が固まるので、
+            // 別スレッドへ逃がしてから作り直す。
+            _rebuildCapture = () => _ = Task.Run(async () =>
+            {
+                try
+                {
+                    if (!await BuildCaptureAsync(currentResolution)) return;
+                    await StartStreamingAsync();
+
+                    _logger.Info("ConnectionServer", "設定の変更を反映しました");
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    _logger.Warn("ConnectionServer", $"設定の反映に失敗しました: {ex.Message}");
+                }
+            }, ct);
+
             _ = LogStreamerHealthAsync(streamer, ct);
 
-            // 送ったものが端末に届くまでどれだけ遅れているかを測る
-            _ = SendLatencyProbesAsync(transport, ct);
+            // 遅れの計測と、相手が生きているかの見張りを兼ねる
+            _ = SendLatencyProbesAsync(transport, sessionCts, ct);
 
             // 受信ループ（タッチ・制御チャンネルを処理）。
             // 名乗りを受け取ったのと同じ列挙子の続きから読む。
@@ -1658,6 +1825,15 @@ public sealed class ConnectionServer
                         // 端末を回すと、新しい向きの画面サイズを名乗ってくる。
                         // 仮想モニターは 1 つの解像度しか持たないので、作り直して
                         // 向きを合わせる。合わせないと縦横比が崩れて帯が出る。
+                        // スマホ側から切られた。待たずに畳む。
+                        if (IsGoodbye(data.Span))
+                        {
+                            _logger.Info("ConnectionServer", "スマホ側から切断されました");
+                            SetTransportState(transportType,
+                                "スマホ側から切断されました", connected: false);
+                            return outcome;
+                        }
+
                         // 往復時間の応答なら記録して終わり
                         HandleLatencyPong(data.Span);
 
@@ -1698,6 +1874,10 @@ public sealed class ConnectionServer
         }
         finally
         {
+            // セッションが終わったら、作り直しの受け口も外す。
+            // 残すと、次に設定を保存したとき既に無いものを触りにいく。
+            _rebuildCapture = null;
+
             // 投げっぱなしの読み出しが残っている状態で列挙子を捨てると
             // NotSupportedException になる。終わるのを待ってから片付ける。
             if (pendingRead is not null)

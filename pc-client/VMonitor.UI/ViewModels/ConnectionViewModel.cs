@@ -106,6 +106,16 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>接続候補のリスト。mDNS 検出・USB 接続イベントで追加される。</summary>
     public ObservableCollection<ConnectionCandidateViewModel> Candidates { get; } = new();
 
+    /// <summary>
+    /// 一覧で何か選ばれているか。
+    /// </summary>
+    /// <remarks>
+    /// 画面の表示切り替えに使う。SelectedCandidate をそのまま
+    /// BooleanToVisibilityConverter に渡していたが、bool ではないので
+    /// 変換できず、選んでも詳細が出ないままだった。
+    /// </remarks>
+    public bool HasSelection => _selectedCandidate is not null;
+
     /// <summary>現在選択されている接続候補。</summary>
     public ConnectionCandidateViewModel? SelectedCandidate
     {
@@ -114,6 +124,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         {
             _selectedCandidate = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSelection));
             ((RelayCommand)ConnectCommand).RaiseCanExecuteChanged();
         }
     }
@@ -251,6 +262,29 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
             return;
 
         DismissNotification();
+
+        // 実際に繋ぐのは接続サーバー。経路ごとに手順が違うので、
+        // 選ばれた端末の種類で振り分ける。
+        //
+        // ここから直接セッションを張ろうとしていたが、それは
+        // USB のアクセサリー切り替えも仮想ディスプレイの用意も通らない
+        // 別経路で、押しても繋がらなかった。
+        if (SelectedCandidate.Transport == TransportType.USB)
+        {
+            if (Usb is not null)
+            {
+                ConnectionStatus = "接続中...";
+                Usb.ConnectCommand.Execute(null);
+                return;
+            }
+        }
+        else if (Device is not null)
+        {
+            ConnectionStatus = "接続中...";
+            Device.ConnectCommand.Execute(null);
+            return;
+        }
+
         SetBusy(true);
         ConnectionStatus = "接続中...";
 

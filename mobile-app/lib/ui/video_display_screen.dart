@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../renderer/renderer.dart';
 import '../renderer/renderer_view.dart';
 import '../transport/aoa_transport.dart';
+import '../transport/connect_protocol.dart';
 // Orientation / Resolution が Flutter の同名型と衝突するため接頭辞を付ける
 import '../touch/touch_input_proxy.dart' as touch;
 import '../transport/transport.dart';
@@ -361,7 +362,23 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
   /// 映像の上のタッチ領域と取り合いになる。押せる形で置いておく。
   void _goHome() {
     if (!mounted) return;
+
+    // 切ることを先に伝える。
+    //
+    // 黙って閉じると、PC は応答が絶えるまで切断に気づけない。
+    // そのあいだ「接続中」が出たままになり、繋ぎ直すこともできない。
+    // 届かなくても困らないので、返事は待たない。
+    unawaited(_sayGoodbye());
+
     Navigator.of(context).pop();
+  }
+
+  Future<void> _sayGoodbye() async {
+    try {
+      await widget.transport.send(ConnectProtocol.bye(), ChannelId.control);
+    } catch (_) {
+      // 既に切れているなら伝える必要もない
+    }
   }
 
   @override

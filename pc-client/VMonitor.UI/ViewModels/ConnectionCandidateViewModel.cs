@@ -19,12 +19,24 @@ public sealed class ConnectionCandidateViewModel
     /// <summary>デバイスの物理解像度の文字列表現。</summary>
     public string Resolution => $"{Device.PhysicalResolution.Width} × {Device.PhysicalResolution.Height}";
 
-    /// <summary>接続種別のアイコンテキスト（Wi-Fi は 📶、USB は 🔌）。</summary>
-    public string TransportIcon { get; }
+    /// <summary>
+    /// この端末との繋ぎ方。
+    /// </summary>
+    /// <remarks>
+    /// 表示用の文字列しか持っていなかったため、繋ぐときに
+    /// USB と Wi-Fi を見分けられなかった。値そのものを持つ。
+    /// </remarks>
+    public TransportType Transport { get; }
+
+    /// <summary>接続種別の表示名。</summary>
+    public string TransportLabel => Transport == TransportType.USB ? "USB" : "Wi-Fi";
+
+    /// <summary>旧名。既存の束縛が参照している。</summary>
+    public string TransportIcon => TransportLabel;
 
     public ConnectionCandidateViewModel(DeviceInfo device, TransportType transport)
     {
-        Device = device ?? throw new ArgumentNullException(nameof(device));
-        TransportIcon = transport == TransportType.USB ? "🔌 USB" : "📶 Wi-Fi";
+        Device    = device ?? throw new ArgumentNullException(nameof(device));
+        Transport = transport;
     }
 }

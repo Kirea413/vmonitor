@@ -168,10 +168,9 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <!-- 右ペインを畳んだぶん、一覧に幅を渡す -->
-                <ColumnDefinition Width="*" MinWidth="200"/>
-                <ColumnDefinition Width="0"/>
-                <ColumnDefinition Width="0"/>
+                <ColumnDefinition Width="*" MinWidth="220"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="280"/>
             </Grid.ColumnDefinitions>
 
             <!-- ── USB 直結の操作 ──
@@ -227,10 +226,10 @@
                                Foreground="#6B7280" VerticalAlignment="Center"
                                TextWrapping="Wrap" MaxWidth="420"/>
 
-                    <Button Grid.Row="0" Grid.Column="3" Content="接続"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding ConnectCommand}"/>
-
+                    <!-- 接続の操作は右の詳細に一本化した。
+                         ここに置くと、一覧から選んで繋ぐ導線と二重になり、
+                         どちらを押すのが正解か分からなくなる。
+                         切断だけは、繋がっている相手に対してすぐ効かせたいので残す。 -->
                     <Button Grid.Row="0" Grid.Column="4" Content="切断"
                             Style="{StaticResource SecondaryButton}"
                             Command="{Binding DisconnectCommand}"/>
@@ -445,17 +444,12 @@
                 </Grid>
             </Border>
 
-            <!-- ── 右ペイン: 接続管理 ──
-                 畳んである。上の USB / Wi-Fi パネルと機能が丸ごと重複しており、
-                 「接続」に相当するボタンが画面に 4 つ、「未接続」の表示が
-                 5 箇所ある状態になっていた。どれを押すのが正解か分からない。
-
-                 操作は上のパネルに一本化した。ここは選択中のデバイスを
-                 一覧から操作する用途で作られたものだが、実際には
-                 一覧から選んで繋ぐ導線は使われていない。 -->
+            <!-- ── 右ペイン: 選んだ端末の詳細 ──
+                 一覧で選ぶと、その端末についてここに出す。
+                 一度は畳んだが、それは上のパネルと機能が重複していたため。
+                 一覧と連動する形なら重複ではなくなる。 -->
             <Border Grid.Row="2" Grid.Column="2" Background="White" CornerRadius="6"
-                    BorderBrush="#E5E7EB" BorderThickness="1"
-                    Visibility="Collapsed">
+                    BorderBrush="#E5E7EB" BorderThickness="1">
                 <StackPanel Margin="16,12">
 
                     <!-- セクションタイトル -->
@@ -469,30 +463,30 @@
                         <StackPanel>
                             <TextBlock Text="選択中のデバイス" FontSize="11"
                                        Foreground="#6B7280" Margin="0,0,0,2"/>
-                            <TextBlock FontSize="13" Foreground="#374151">
+
+                            <!-- 何も選ばれていないときだけ出す。
+                                 以前は常に出ていて、名前と二重に並んでいた。 -->
+                            <TextBlock Text="一覧から選んでください"
+                                       FontSize="13" Foreground="#9CA3AF">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Text" Value="（未選択）"/>
                                         <Style.Triggers>
-                                            <DataTrigger Binding="{Binding SelectedCandidate}" Value="{x:Null}">
-                                                <Setter Property="Foreground" Value="#9CA3AF"/>
+                                            <DataTrigger Binding="{Binding HasSelection}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </TextBlock.Style>
                             </TextBlock>
+
                             <!-- 選択中デバイス名 -->
                             <TextBlock Text="{Binding SelectedCandidate.Name}"
                                        FontSize="13" FontWeight="SemiBold" Foreground="#111827"
-                                       Visibility="{Binding SelectedCandidate,
-                                           Converter={StaticResource BoolToVis},
-                                           TargetNullValue=Collapsed,
-                                           FallbackValue=Collapsed}"/>
+                                       Visibility="{Binding HasSelection,
+                                           Converter={StaticResource BoolToVis}}"/>
                             <TextBlock FontSize="11" Foreground="#6B7280" Margin="0,1,0,0"
-                                       Visibility="{Binding SelectedCandidate,
-                                           Converter={StaticResource BoolToVis},
-                                           TargetNullValue=Collapsed,
-                                           FallbackValue=Collapsed}">
+                                       Visibility="{Binding HasSelection,
+                                           Converter={StaticResource BoolToVis}}">
                                 <Run Text="{Binding SelectedCandidate.Platform, Mode=OneWay}"/>
                                 <Run Text=" · "/>
                                 <Run Text="{Binding SelectedCandidate.TransportIcon, Mode=OneWay}"/>
@@ -556,17 +550,9 @@
                             HorizontalAlignment="Stretch"
                             Command="{Binding DisconnectCommand}"/>
 
-                    <Separator Margin="0,8"/>
-
-                    <!-- 再接続ボタン（常時表示、無効時はグレー） -->
-                    <Button Content="再接続" Margin="0,0,0,4"
-                            Style="{StaticResource SecondaryButton}"
-                            HorizontalAlignment="Stretch"
-                            Command="{Binding ReconnectCommand}"/>
-
-                    <TextBlock Text="切断後に手動で再接続します"
-                               FontSize="11" Foreground="#9CA3AF"
-                               HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    <!-- 「再接続」は外した。
+                         切れたあとに繋ぎ直すのは「接続する」と同じことで、
+                         二つ並べても、どちらを押すのが正解か分からなくなる。 -->
 
                 </StackPanel>
             </Border>
