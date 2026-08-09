@@ -5,8 +5,8 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:VMonitor.UI.ViewModels"
         mc:Ignorable="d"
-        Title="vmonitor" Height="560" Width="820"
-        MinWidth="600" MinHeight="440"
+        Title="vmonitor" Height="720" Width="1060"
+        MinWidth="820" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         Background="#F3F4F6">
 
@@ -14,45 +14,8 @@
         <!-- ステータス文字列 → 背景色 変換リソース（インライン Style で代替） -->
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
-        <!-- ── 接続パネル ──
-             USB と Wi-Fi で見た目を揃える。並んでいるものの形が違うと、
-             別々の機能に見えて「どちらを使うのか」で迷う。 -->
-        <Style x:Key="ConnectPanelStyle" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="BorderBrush" Value="#E5E7EB"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="14,12"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
-        </Style>
-
-        <!-- 繋がっているかどうかの丸印。
-             文言を読まなくても状態が分かるようにするためのもの。 -->
-        <Style x:Key="StatusDotStyle" TargetType="Ellipse">
-            <Setter Property="Width" Value="9"/>
-            <Setter Property="Height" Value="9"/>
-            <Setter Property="Margin" Value="0,0,9,0"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="Fill" Value="#D1D5DB"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                    <Setter Property="Fill" Value="#22C55E"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="PrimaryActionButtonStyle" TargetType="Button">
-            <Setter Property="MinWidth" Value="76"/>
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="Margin" Value="0,0,8,0"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
-
-        <Style x:Key="SecondaryActionButtonStyle" TargetType="Button">
-            <Setter Property="MinWidth" Value="76"/>
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
+        <!-- ボタン・カード・入力欄・状態ドットは Theme.xaml に集約した。
+             ここに書いていた頃は、同じ役割のものが画面ごとに違う形をしていた。 -->
 
         <!-- 接続候補リストのアイテムスタイル -->
         <Style x:Key="CandidateItemStyle" TargetType="ListViewItem">
@@ -60,34 +23,14 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
 
-        <!-- プライマリボタン -->
-        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
+        <!-- 接続パネルの丸印。Theme の StatusDot に、接続で緑になる規則を足す。 -->
+        <Style x:Key="StatusDotStyle" TargetType="Ellipse"
+               BasedOn="{StaticResource StatusDot}">
+            <Setter Property="Margin" Value="0,0,9,0"/>
             <Style.Triggers>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#93C5FD"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- セカンダリボタン -->
-        <Style x:Key="SecondaryButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Foreground" Value="#374151"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="BorderBrush" Value="#D1D5DB"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Style.Triggers>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Foreground" Value="#9CA3AF"/>
-                </Trigger>
+                <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                    <Setter Property="Fill" Value="{StaticResource Good}"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
     </Window.Resources>
@@ -112,9 +55,19 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
+                <!-- 自分の名前を大書きしても利用者には何も伝わらない。
+                     小さく置いて、隣にいまの状態を出す。 -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="vmonitor" Foreground="White"
-                               FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text="vmonitor" Foreground="#B9C6D8"
+                               FontSize="13" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+
+                    <Border Width="1" Height="16" Background="#3A567C"
+                            Margin="12,0" VerticalAlignment="Center"/>
+
+                    <TextBlock Text="{Binding ConnectionStatus}" Foreground="White"
+                               FontSize="15" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- 接続ステータスインジケーター -->
@@ -142,8 +95,8 @@
                             </Style>
                         </Ellipse.Style>
                     </Ellipse>
-                    <TextBlock Text="{Binding ConnectionStatus}" Foreground="White"
-                               FontSize="13" VerticalAlignment="Center"/>
+                    <!-- 状態の文言は左に移した。ここは丸印だけにする。
+                         同じ言葉を並べても情報は増えない。 -->
                 </StackPanel>
             </Grid>
         </Border>
@@ -167,10 +120,10 @@
                 </StackPanel>
 
                 <Button Grid.Column="1" Content="再試行" Margin="8,0"
-                        Style="{StaticResource PrimaryButtonStyle}"
+                        Style="{StaticResource PrimaryButton}"
                         Command="{Binding RetryConnectCommand}"/>
                 <Button Grid.Column="2" Content="閉じる" Margin="0,0,4,0"
-                        Style="{StaticResource SecondaryButtonStyle}"
+                        Style="{StaticResource SecondaryButton}"
                         Command="{Binding DismissNotificationCommand}"/>
             </Grid>
         </Border>
@@ -188,26 +141,26 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="⚠" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <Path Style="{StaticResource Icon}" Data="{StaticResource IconWarning}"
+                          Stroke="{StaticResource Warn}" Margin="0,0,8,0"/>
                     <TextBlock Text="{Binding NotificationMessage}" FontSize="13"
                                Foreground="#991B1B" VerticalAlignment="Center" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <Button Grid.Column="1" Content="再接続" Margin="8,0"
-                        Style="{StaticResource PrimaryButtonStyle}"
+                        Style="{StaticResource PrimaryButton}"
                         Command="{Binding ReconnectCommand}"/>
                 <Button Grid.Column="2" Content="閉じる" Margin="0,0,4,0"
-                        Style="{StaticResource SecondaryButtonStyle}"
+                        Style="{StaticResource SecondaryButton}"
                         Command="{Binding DismissNotificationCommand}"/>
             </Grid>
         </Border>
 
         <!-- ━━━ メインコンテンツ ━━━ -->
-        <TabControl Grid.Row="2" Margin="16,12,16,0"
-                    Background="Transparent" BorderThickness="0">
+        <TabControl Grid.Row="2" Margin="16,12,16,0" Style="{StaticResource TabStrip}">
 
             <!-- 接続タブ -->
-            <TabItem Header="接続">
+            <TabItem Style="{StaticResource Tab}" Header="接続">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -215,16 +168,17 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
+                <!-- 右ペインを畳んだぶん、一覧に幅を渡す -->
                 <ColumnDefinition Width="*" MinWidth="200"/>
-                <ColumnDefinition Width="12"/>
-                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="0"/>
+                <ColumnDefinition Width="0"/>
             </Grid.ColumnDefinitions>
 
             <!-- ── USB 直結の操作 ──
                  USB では PC 側が端末を掴みにいくので、繋ぐ・切るは
                  PC からも操作できる必要がある。 -->
             <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
-                    Style="{StaticResource ConnectPanelStyle}"
+                    Style="{StaticResource Card}"
                     DataContext="{Binding Usb}">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -249,10 +203,21 @@
                                    VerticalAlignment="Center"/>
 
                         <!-- 「ケーブルが挿さっている」と「映像が流れている」を
-                             取り違えないよう、段階を明示する。 -->
+                             取り違えないよう、段階を明示する。
+                             ただし「未接続」のときは出さない。ヘッダーが
+                             同じことを言っており、繰り返しても情報は増えない。 -->
                         <Border Background="#F3F4F6" CornerRadius="9"
                                 Padding="7,1" Margin="8,0,0,0"
                                 VerticalAlignment="Center">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding StageLabel}" Value="未接続">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <TextBlock Text="{Binding StageLabel}" FontSize="11"
                                        Foreground="#4B5563"/>
                         </Border>
@@ -260,19 +225,22 @@
 
                     <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Status}"
                                Foreground="#6B7280" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis"/>
+                               TextWrapping="Wrap" MaxWidth="420"/>
 
                     <Button Grid.Row="0" Grid.Column="3" Content="接続"
-                            Style="{StaticResource PrimaryActionButtonStyle}"
+                            Style="{StaticResource PrimaryButton}"
                             Command="{Binding ConnectCommand}"/>
 
                     <Button Grid.Row="0" Grid.Column="4" Content="切断"
-                            Style="{StaticResource SecondaryActionButtonStyle}"
+                            Style="{StaticResource SecondaryButton}"
                             Command="{Binding DisconnectCommand}"/>
 
+                    <!-- TextTrimming だけでは幅は縮まない。折り返しを許して、
+                         この行がウィンドウを押し広げないようにする。 -->
                     <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3"
                                Text="ケーブルで繋ぐといちばん遅延が少なくなります。"
                                Foreground="#9CA3AF" FontSize="11"
+                               TextWrapping="Wrap"
                                Margin="0,4,0,0"/>
                 </Grid>
             </Border>
@@ -281,7 +249,7 @@
                  スマホのホーム画面に出ているアドレスとポートを入れる。
                  PC の前にいるとき、スマホを手に取らずに始められるようにするため。 -->
             <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
-                    Style="{StaticResource ConnectPanelStyle}"
+                    Style="{StaticResource Card}"
                     DataContext="{Binding Device}">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -310,34 +278,40 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <TextBox Grid.Column="0"
+                                 Style="{StaticResource AddressField}"
                                  Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}"
-                                 VerticalContentAlignment="Center" Padding="6,4"
-                                 FontFamily="Consolas" Margin="0,0,6,0"
-                                 ToolTip="スマホの画面に出ている IP アドレス"/>
+                                 Tag="スマホの画面に出ているアドレス"
+                                 Margin="0,0,6,0"
+                                 ToolTip="スマホのホーム画面に出ている IP アドレス"/>
 
-                        <TextBox Grid.Column="1" Width="64"
+                        <!-- 数字だけ置くと何の値か分からない。単位を添える。 -->
+                        <TextBlock Grid.Column="1" Text="ポート"
+                                   Foreground="{StaticResource Muted}" FontSize="12"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+
+                        <TextBox Grid.Column="2" Width="72"
+                                 Style="{StaticResource NumberField}"
                                  Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}"
-                                 VerticalContentAlignment="Center" Padding="6,4"
-                                 FontFamily="Consolas"
                                  ToolTip="スマホが待ち受けているポート"/>
                     </Grid>
 
                     <Button Grid.Row="0" Grid.Column="3" Content="接続"
-                            Style="{StaticResource PrimaryActionButtonStyle}"
+                            Style="{StaticResource PrimaryButton}"
                             Command="{Binding ConnectCommand}"/>
 
                     <Button Grid.Row="0" Grid.Column="4" Content="切断"
-                            Style="{StaticResource SecondaryActionButtonStyle}"
+                            Style="{StaticResource SecondaryButton}"
                             Command="{Binding DisconnectCommand}"/>
 
                     <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3"
                                Text="{Binding Status}"
                                Foreground="#6B7280" FontSize="11"
                                Margin="0,4,0,0"
-                               TextTrimming="CharacterEllipsis"/>
+                               TextWrapping="Wrap"/>
                 </Grid>
             </Border>
 
@@ -376,8 +350,9 @@
                                     </Grid.ColumnDefinitions>
 
                                     <!-- デバイスアイコン -->
-                                    <TextBlock Grid.Column="0" Text="📱" FontSize="24"
-                                               VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <Path Grid.Column="0" Style="{StaticResource IconAccent}"
+                                          Data="{StaticResource IconPhone}"
+                                          Width="22" Height="22" Margin="0,0,10,0"/>
 
                                     <!-- デバイス情報 -->
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -402,20 +377,61 @@
                                     <DataTrigger Binding="{Binding Candidates.Count}" Value="0">
                                         <Setter Property="Template">
                                             <Setter.Value>
+                                                <!--
+                                                    繋がっていないあいだ、いちばん広いこの場所が
+                                                    「探索中」の一行だけだった。ここで
+                                                    「何がどう繋がるのか」と「次に何をすればよいか」
+                                                    の両方を示す。
+                                                -->
                                                 <ControlTemplate>
                                                     <StackPanel VerticalAlignment="Center"
                                                                 HorizontalAlignment="Center"
-                                                                Margin="20">
-                                                        <TextBlock Text="🔍" FontSize="36"
-                                                                   HorizontalAlignment="Center"
-                                                                   Margin="0,0,0,8"/>
-                                                        <TextBlock Text="デバイスを探索中..."
-                                                                   FontSize="13" Foreground="#9CA3AF"
+                                                                Margin="24">
+
+                                                        <!-- PC ── ケーブル ── スマホ。
+                                                             文字で説明するより早い。 -->
+                                                        <StackPanel Orientation="Horizontal"
+                                                                    HorizontalAlignment="Center"
+                                                                    Margin="0,0,0,22">
+                                                            <Path Data="{StaticResource IconMonitor}"
+                                                                  Style="{StaticResource Icon}"
+                                                                  Stroke="{StaticResource Faint}"
+                                                                  Width="52" Height="52"
+                                                                  StrokeThickness="1.3"/>
+
+                                                            <!-- 繋がっていないので破線 -->
+                                                            <Path Data="M0,0 H56"
+                                                                  Stroke="{StaticResource Idle}"
+                                                                  StrokeThickness="2"
+                                                                  StrokeDashArray="3 3"
+                                                                  StrokeDashCap="Round"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="14,0"/>
+
+                                                            <Path Data="{StaticResource IconPhone}"
+                                                                  Style="{StaticResource Icon}"
+                                                                  Stroke="{StaticResource Faint}"
+                                                                  Width="52" Height="52"
+                                                                  StrokeThickness="1.3"/>
+                                                        </StackPanel>
+
+                                                        <TextBlock Text="スマホを繋ぐと、2 枚目の画面になります"
+                                                                   FontSize="15" FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource Body}"
                                                                    HorizontalAlignment="Center"/>
-                                                        <TextBlock Text="同一 Wi-Fi ネットワーク上の&#xa;スマートフォンか USB 接続を確認してください"
-                                                                   FontSize="11" Foreground="#D1D5DB"
+
+                                                        <TextBlock Text="ケーブルで繋ぐか、同じ Wi-Fi につないでください。"
+                                                                   FontSize="12"
+                                                                   Foreground="{StaticResource Muted}"
                                                                    HorizontalAlignment="Center"
-                                                                   TextAlignment="Center"
+                                                                   Margin="0,8,0,0"/>
+
+                                                        <!-- 次の一手。上のパネルと同じ操作だが、
+                                                             探している人の目はここに来る。 -->
+                                                        <TextBlock Text="どちらかで「接続」を押すと、スマホ側に確認が出ます。"
+                                                                   FontSize="12"
+                                                                   Foreground="{StaticResource Faint}"
+                                                                   HorizontalAlignment="Center"
                                                                    Margin="0,4,0,0"/>
                                                     </StackPanel>
                                                 </ControlTemplate>
@@ -429,9 +445,17 @@
                 </Grid>
             </Border>
 
-            <!-- ── 右ペイン: 接続管理 ── -->
+            <!-- ── 右ペイン: 接続管理 ──
+                 畳んである。上の USB / Wi-Fi パネルと機能が丸ごと重複しており、
+                 「接続」に相当するボタンが画面に 4 つ、「未接続」の表示が
+                 5 箇所ある状態になっていた。どれを押すのが正解か分からない。
+
+                 操作は上のパネルに一本化した。ここは選択中のデバイスを
+                 一覧から操作する用途で作られたものだが、実際には
+                 一覧から選んで繋ぐ導線は使われていない。 -->
             <Border Grid.Row="2" Grid.Column="2" Background="White" CornerRadius="6"
-                    BorderBrush="#E5E7EB" BorderThickness="1">
+                    BorderBrush="#E5E7EB" BorderThickness="1"
+                    Visibility="Collapsed">
                 <StackPanel Margin="16,12">
 
                     <!-- セクションタイトル -->
@@ -522,13 +546,13 @@
 
                     <!-- 接続ボタン -->
                     <Button Content="接続する" Margin="0,0,0,8"
-                            Style="{StaticResource PrimaryButtonStyle}"
+                            Style="{StaticResource PrimaryButton}"
                             HorizontalAlignment="Stretch"
                             Command="{Binding ConnectCommand}"/>
 
                     <!-- 切断ボタン -->
                     <Button Content="切断する" Margin="0,0,0,8"
-                            Style="{StaticResource SecondaryButtonStyle}"
+                            Style="{StaticResource SecondaryButton}"
                             HorizontalAlignment="Stretch"
                             Command="{Binding DisconnectCommand}"/>
 
@@ -536,7 +560,7 @@
 
                     <!-- 再接続ボタン（常時表示、無効時はグレー） -->
                     <Button Content="再接続" Margin="0,0,0,4"
-                            Style="{StaticResource SecondaryButtonStyle}"
+                            Style="{StaticResource SecondaryButton}"
                             HorizontalAlignment="Stretch"
                             Command="{Binding ReconnectCommand}"/>
 
@@ -550,7 +574,13 @@
             </TabItem>
 
             <!-- 設定タブ -->
-            <TabItem Header="⚙ 設定">
+            <TabItem Style="{StaticResource Tab}">
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IconSliders}" Width="15" Height="15" Margin="0,0,6,0"/>
+                        <TextBlock Text="設定" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
                 <local:ErrorLogView x:Name="SettingsView"
                     xmlns:local="clr-namespace:VMonitor.UI"/>
             </TabItem>
@@ -564,13 +594,23 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#6B7280">
-                    <Run Text="ステータス: "/>
-                    <Run Text="{Binding ConnectionStatus, Mode=OneWay}"/>
-                </TextBlock>
+                <!-- 状態はヘッダーに集約した。ここは常駐していることと、
+                     どの版が動いているかを置く。どちらも他所に出ていない。 -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Path Data="{StaticResource IconWifi}"
+                          Style="{StaticResource Icon}"
+                          Stroke="{StaticResource Faint}"
+                          Width="13" Height="13" Margin="0,0,6,0"/>
+                    <TextBlock Text="スマホからの接続を待ち受けています"
+                               FontSize="11" Foreground="#6B7280"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
                 <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11"
                            Foreground="#9CA3AF"
-                           Text="vmonitor PC Client"/>
+                           Text="{Binding DataContext.Update.CurrentVersionText,
+                                  ElementName=SettingsView,
+                                  StringFormat='バージョン {0}'}"/>
             </Grid>
         </Border>
     </Grid>

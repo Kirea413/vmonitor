@@ -161,7 +161,10 @@
                                     <!-- デバイス名 -->
                                     <StackPanel Grid.Column="0" Orientation="Horizontal"
                                                 VerticalAlignment="Center">
-                                        <TextBlock Text="📱" FontSize="16" VerticalAlignment="Center"
+                                        <Path Style="{StaticResource IconAccent}"
+                                              Data="{StaticResource IconPhone}"
+                                              Width="16" Height="16" Margin="0,0,6,0"/>
+                                        <TextBlock Text="" FontSize="16" VerticalAlignment="Center"
                                                    Margin="0,0,8,0"/>
                                         <TextBlock Text="{Binding Name}" FontSize="13"
                                                    Foreground="#111827" VerticalAlignment="Center"

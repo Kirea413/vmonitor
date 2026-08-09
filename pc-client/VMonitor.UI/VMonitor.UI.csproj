@@ -1,5 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    WinForms を有効にすると、その名前空間が暗黙 using に加わり、
+    Application / UserControl / Brush が WPF 側と衝突する。
+    トレイ以外で WinForms を使うことはないので、暗黙 using からは外す。
+    TrayPresence は別名 (Forms) と完全修飾で書いてある。
+  -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\VMonitor.Core\VMonitor.Core.csproj" />
     <ProjectReference Include="..\VMonitor.Driver\VMonitor.Driver.csproj" />
@@ -20,13 +31,26 @@
       installer\vmonitor_setup.iss の AppVersion と必ず揃えること。
       ずれると、更新済みなのに「新版あり」と出続ける。
     -->
-    <Version>1.1.0</Version>
+    <!--
+      GitHub Releases のタグと揃える。タグは v1.0.0-beta のような形で、
+      更新確認は接尾辞（-beta）を落として 1.0.0 として比べる。
+      ここを実際の配布より大きくすると、新版を出しても
+      「古い版」と判定されて更新が出てこない。
+    -->
+    <Version>1.0.0</Version>
+    <InformationalVersion>1.0.0-beta</InformationalVersion>
 
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!--
+      タスクトレイの常駐に WinForms の NotifyIcon を使う。
+      WPF には相当するものが無く、外部パッケージを足すより
+      標準にあるものを借りるほうが依存が増えない。
+    -->
+    <UseWindowsForms>true</UseWindowsForms>
     <!--
       画面ごとの拡大率をそのまま扱うためのマニフェスト。
       これが無いと、拡大率の違うディスプレイの座標と大きさが

@@ -104,13 +104,35 @@ public partial class App : Application
         //   adb reverse tcp:7979 tcp:7979
         // （forward ではなく reverse。必要なのは端末から PC への向き）
 
-        // メインウィンドウ表示
+        // メインウィンドウ
         var mainWindow = new MainWindow(connectionVm, settingsVm);
+
+        // タスクトレイに常駐する。
+        //
+        // 「スマホを繋いだら映る」ことを期待されるアプリなので、
+        // 閉じるボタンで終了すると、次に繋いだときに何も起きない。
+        // 既定ではしまうだけにして、待ち受けを続ける。
+        _tray = new TrayPresence(mainWindow);
+        settingsVm.AttachTray(_tray);
+
+        // 自動起動から始まったときは、いきなり窓を開かない。
+        // ログオンのたびにウィンドウが出てくるのは邪魔なだけ。
+        if (TrayPresence.StartedInTray(e.Args))
+        {
+            MainWindow = mainWindow;   // 閉じても終了しないよう関連付けだけしておく
+            return;
+        }
+
         mainWindow.Show();
     }
 
+    private TrayPresence? _tray;
+
     protected override void OnExit(ExitEventArgs e)
     {
+        // トレイのアイコンは明示的に消す。残すと、終了後も居座る。
+        _tray?.Dispose();
+
         _server?.Stop();
         base.OnExit(e);
     }

@@ -206,6 +206,74 @@ public sealed class ErrorLogViewModel : INotifyPropertyChanged, IDisposable
         set => RequireVirtualDisplay = !value;
     }
 
+    // ── 常駐と自動起動 ───────────────────────────────────────────────────
+
+    private TrayPresence? _tray;
+    private bool _minimizeToTray = true;
+    private bool _startWithWindows;
+
+    /// <summary>常駐の面倒を見る相手を渡す。ウィンドウが出来てから呼ぶ。</summary>
+    public void AttachTray(TrayPresence tray)
+    {
+        _tray = tray;
+
+        _startWithWindows = TrayPresence.IsStartupEnabled();
+        _tray.CloseAction = _minimizeToTray ? CloseAction.MinimizeToTray : CloseAction.Exit;
+
+        OnPropertyChanged(nameof(StartWithWindows));
+    }
+
+    /// <summary>
+    /// 閉じるボタンでタスクトレイにしまうか。false なら終了する。
+    /// </summary>
+    public bool MinimizeToTray
+    {
+        get => _minimizeToTray;
+        set
+        {
+            if (_minimizeToTray == value) return;
+
+            _minimizeToTray = value;
+
+            if (_tray is not null)
+                _tray.CloseAction = value ? CloseAction.MinimizeToTray : CloseAction.Exit;
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Windows の起動時に自動で立ち上げるか。
+    /// </summary>
+    /// <remarks>
+    /// 利用者ごとの登録なので管理者権限は要らない。
+    /// 自動起動のときはトレイに入った状態で始まる。
+    /// </remarks>
+    public bool StartWithWindows
+    {
+        get => _startWithWindows;
+        set
+        {
+            if (_startWithWindows == value) return;
+
+            if (!TrayPresence.SetStartupEnabled(value))
+            {
+                SetError("自動起動の設定を変更できませんでした。" +
+                         "組織のポリシーで制限されている可能性があります。");
+
+                OnPropertyChanged();   // 見た目を元に戻す
+                return;
+            }
+
+            _startWithWindows = value;
+            OnPropertyChanged();
+
+            SetStatus(value
+                ? "Windows の起動時に、通知領域で待機した状態で立ち上がります。"
+                : "自動起動を解除しました。");
+        }
+    }
+
     /// <summary>
     /// 更新の確認と適用。
     /// </summary>

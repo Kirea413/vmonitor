@@ -1,4 +1,4 @@
-<UserControl x:Class="VMonitor.UI.ErrorLogView"
+﻿<UserControl x:Class="VMonitor.UI.ErrorLogView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -16,37 +16,7 @@
 
         <local:InverseBoolConverter x:Key="InverseBool"
             xmlns:local="clr-namespace:VMonitor.UI"/>
-
-        <!-- プライマリボタン -->
-        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Style.Triggers>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#93C5FD"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- セカンダリボタン -->
-        <Style x:Key="SecondaryButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Foreground" Value="#374151"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="BorderBrush" Value="#D1D5DB"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Style.Triggers>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Foreground" Value="#9CA3AF"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+        <!-- ボタンは Theme.xaml に集約した -->
 
         <!-- セクションヘッダースタイル -->
         <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
@@ -68,7 +38,7 @@
         <StackPanel Margin="16,12">
 
             <!-- ━━━ タイトル ━━━ -->
-            <TextBlock Text="エラーログ・設定"
+            <TextBlock Text="設定"
                        FontSize="16" FontWeight="Bold"
                        Foreground="#111827" Margin="0,0,0,16"/>
 
@@ -106,77 +76,6 @@
                 </TextBlock>
             </Border>
 
-            <!-- ━━━ セクション 1: ログファイルの場所 (Requirements 9.5) ━━━ -->
-            <Border Background="White" CornerRadius="6"
-                    BorderBrush="#E5E7EB" BorderThickness="1"
-                    Margin="0,0,0,12">
-                <StackPanel>
-
-                    <!-- セクションヘッダー -->
-                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
-                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
-                            Padding="12,8">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📄" FontSize="15" VerticalAlignment="Center"
-                                       Margin="0,0,6,0"/>
-                            <TextBlock Text="エラーログファイルの場所"
-                                       Style="{StaticResource SectionHeaderStyle}"
-                                       Margin="0"/>
-                        </StackPanel>
-                    </Border>
-
-                    <StackPanel Margin="12,10">
-
-                        <TextBlock Style="{StaticResource FieldLabelStyle}"
-                                   Text="ログファイルパス"/>
-
-                        <!-- ログパス表示（読み取り専用） -->
-                        <TextBox Text="{Binding LogFilePath, Mode=OneWay}"
-                                 IsReadOnly="True"
-                                 FontSize="12"
-                                 FontFamily="Consolas"
-                                 Padding="6,4"
-                                 BorderBrush="#D1D5DB"
-                                 BorderThickness="1"
-                                 Background="#F9FAFB"
-                                 Foreground="#374151"
-                                 TextWrapping="Wrap"
-                                 Margin="0,0,0,10"/>
-
-                        <!-- ボタン行 -->
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="📁 フォルダーを開く"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    Margin="0,0,8,0"
-                                    Command="{Binding OpenLogFolderCommand}"/>
-
-                            <Button Content="📄 ログを開く"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    Command="{Binding OpenLogFileCommand}"/>
-                        </StackPanel>
-
-                        <!-- ログファイルが存在しない場合の注記 -->
-                        <TextBlock Margin="0,8,0,0"
-                                   FontSize="11" Foreground="#9CA3AF"
-                                   Visibility="{Binding LogFileExists,
-                                       Converter={StaticResource BoolToVis},
-                                       FallbackValue=Collapsed}">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding LogFileExists}" Value="False">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                            ※ ログファイルはまだ作成されていません。エラー発生時に自動的に作成されます。
-                        </TextBlock>
-
-                    </StackPanel>
-                </StackPanel>
-            </Border>
 
             <!-- ━━━ セクション 2: ディスプレイの扱い ━━━ -->
             <Border Background="White" CornerRadius="6"
@@ -187,8 +86,8 @@
                             BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
                             Padding="12,8">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="🖥" FontSize="15" VerticalAlignment="Center"
-                                       Margin="0,0,6,0"/>
+                            <Path Style="{StaticResource Icon}" Data="{StaticResource IconMonitor}"
+                                  Width="16" Height="16" Margin="0,0,8,0"/>
                             <TextBlock Text="ディスプレイの扱い"
                                        Style="{StaticResource SectionHeaderStyle}"
                                        Margin="0"/>
@@ -237,6 +136,28 @@
                                    TextWrapping="Wrap"
                                    Text="外すと「見るだけ」になります。動画などを映しておくだけのときに、画面に触れてマウスが飛ぶのを防げます。"/>
 
+                        <!-- ── 常駐 ── -->
+                        <Separator Margin="0,4,0,10"/>
+
+                        <TextBlock Text="起動と常駐" FontWeight="SemiBold" FontSize="13"
+                                   Margin="0,0,0,2"/>
+
+                        <CheckBox Content="閉じるボタンで終了せず、通知領域にしまう"
+                                  IsChecked="{Binding MinimizeToTray, Mode=TwoWay}"
+                                  FontSize="13" Margin="0,4,0,4"/>
+
+                        <TextBlock FontSize="11" Foreground="#6B7280" Margin="20,0,0,8"
+                                   TextWrapping="Wrap"
+                                   Text="しまっている間も待ち受けは続くので、スマホを繋げばそのまま映ります。外すと、閉じるボタンで終了します。"/>
+
+                        <CheckBox Content="Windows の起動時に自動で立ち上げる"
+                                  IsChecked="{Binding StartWithWindows, Mode=TwoWay}"
+                                  FontSize="13" Margin="0,0,0,4"/>
+
+                        <TextBlock FontSize="11" Foreground="#6B7280" Margin="20,0,0,10"
+                                   TextWrapping="Wrap"
+                                   Text="通知領域で待機した状態で始まります。ウィンドウは出ません。"/>
+
                         <!-- ── 更新 ──
                              見つけても勝手に適用しない。ドライバの入れ替えと
                              UAC が絡むので、押されてから進める。 -->
@@ -277,7 +198,7 @@
                         </StackPanel>
 
                         <Button Content="設定を保存"
-                                Style="{StaticResource PrimaryButtonStyle}"
+                                Style="{StaticResource PrimaryButton}"
                                 HorizontalAlignment="Left"
                                 Command="{Binding SaveDisplayPolicyCommand}"/>
 
@@ -294,8 +215,8 @@
                             BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
                             Padding="12,8">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="🔌" FontSize="15" VerticalAlignment="Center"
-                                       Margin="0,0,6,0"/>
+                            <Path Style="{StaticResource Icon}" Data="{StaticResource IconUsb}"
+                                  Width="16" Height="16" Margin="0,0,8,0"/>
                             <TextBlock Text="USB 接続モード"
                                        Style="{StaticResource SectionHeaderStyle}"
                                        Margin="0"/>
@@ -339,7 +260,7 @@
                         </StackPanel>
 
                         <Button Content="設定を保存"
-                                Style="{StaticResource PrimaryButtonStyle}"
+                                Style="{StaticResource PrimaryButton}"
                                 HorizontalAlignment="Left"
                                 Command="{Binding SaveUsbModeCommand}"/>
 
@@ -357,8 +278,8 @@
                             BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
                             Padding="12,8">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚙" FontSize="15" VerticalAlignment="Center"
-                                       Margin="0,0,6,0"/>
+                            <Path Style="{StaticResource Icon}" Data="{StaticResource IconGear}"
+                                  Width="16" Height="16" Margin="0,0,8,0"/>
                             <TextBlock Text="ストリーミング設定"
                                        Style="{StaticResource SectionHeaderStyle}"
                                        Margin="0"/>
@@ -428,7 +349,7 @@
 
                         <!-- 保存ボタン -->
                         <Button Content="設定を保存"
-                                Style="{StaticResource PrimaryButtonStyle}"
+                                Style="{StaticResource PrimaryButton}"
                                 HorizontalAlignment="Left"
                                 Command="{Binding SaveBitrateCommand}"
                                 IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
@@ -441,6 +362,79 @@
                 </StackPanel>
             </Border>
 
+            <!-- ログはいちばん使わない。手前にあると、よく使う設定が
+                 その下に埋もれる。末尾へ回した。 -->
+            <!-- ━━━ セクション 1: ログファイルの場所 (Requirements 9.5) ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1"
+                    Margin="0,0,0,12">
+                <StackPanel>
+
+                    <!-- セクションヘッダー -->
+                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
+                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📄" FontSize="15" VerticalAlignment="Center"
+                                       Margin="0,0,6,0"/>
+                            <TextBlock Text="エラーログファイルの場所"
+                                       Style="{StaticResource SectionHeaderStyle}"
+                                       Margin="0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Margin="12,10">
+
+                        <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                   Text="ログファイルパス"/>
+
+                        <!-- ログパス表示（読み取り専用） -->
+                        <TextBox Text="{Binding LogFilePath, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 FontSize="12"
+                                 FontFamily="Consolas"
+                                 Padding="6,4"
+                                 BorderBrush="#D1D5DB"
+                                 BorderThickness="1"
+                                 Background="#F9FAFB"
+                                 Foreground="#374151"
+                                 TextWrapping="Wrap"
+                                 Margin="0,0,0,10"/>
+
+                        <!-- ボタン行 -->
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="📁 フォルダーを開く"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Margin="0,0,8,0"
+                                    Command="{Binding OpenLogFolderCommand}"/>
+
+                            <Button Content="📄 ログを開く"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Command="{Binding OpenLogFileCommand}"/>
+                        </StackPanel>
+
+                        <!-- ログファイルが存在しない場合の注記 -->
+                        <TextBlock Margin="0,8,0,0"
+                                   FontSize="11" Foreground="#9CA3AF"
+                                   Visibility="{Binding LogFileExists,
+                                       Converter={StaticResource BoolToVis},
+                                       FallbackValue=Collapsed}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LogFileExists}" Value="False">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                            ※ ログファイルはまだ作成されていません。エラー発生時に自動的に作成されます。
+                        </TextBlock>
+
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
