@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using System.IO;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Windows;
 using VMonitor.Driver;
@@ -19,6 +20,15 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // 背後の処理が落ちてもアプリごと巻き込まれないようにする。
+        //
+        // 映像の取り込みや配信は別スレッドで回っている。そこで例外が
+        // 外に出ると、待ち受けもトレイも道連れにしてプロセスが終わる。
+        // 利用者からは「接続しようとすると落ちる」としか見えない。
+        //
+        // 1 本のセッションが失敗しても、待ち受けは続けるべきもの。
+        InstallCrashGuards();
 
         // --- コンポーネントの組み立て ---
 
@@ -135,6 +145,65 @@ public partial class App : Application
 
         _server?.Stop();
         base.OnExit(e);
+    }
+
+    /// <summary>
+    /// 想定外の例外でプロセスが落ちないようにする。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// UI スレッドの例外は握って続行できる。背後のタスクの例外は
+    /// 観測済みにしておけば、回収時に落とされることがなくなる。
+    /// </para>
+    /// <para>
+    /// 握りつぶすのではなく必ず記録する。黙って無かったことにすると、
+    /// 原因の分からない不調として残り続ける。
+    /// </para>
+    /// </remarks>
+    private void InstallCrashGuards()
+    {
+        DispatcherUnhandledException += (_, args) =>
+        {
+            WriteCrashLog("UI", args.Exception);
+
+            // 画面が閉じるより、動き続けるほうがまし。
+            // 接続が 1 本失敗しただけ、ということが多い。
+            args.Handled = true;
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            WriteCrashLog("背後の処理", args.Exception);
+            args.SetObserved();
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            // ここまで来ると止められない。せめて理由を残す。
+            if (args.ExceptionObject is Exception ex)
+                WriteCrashLog("致命的", ex);
+        };
+    }
+
+    /// <summary>落ちた理由をファイルに残す。</summary>
+    private static void WriteCrashLog(string where, Exception ex)
+    {
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "vmonitor", "logs", "crash.log");
+
+            var directory = Path.GetDirectoryName(path);
+            if (directory is not null) Directory.CreateDirectory(directory);
+
+            File.AppendAllText(path,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {where}\n{ex}\n\n");
+        }
+        catch
+        {
+            // 記録もできない状況では何もできない
+        }
     }
 
     /// <summary>

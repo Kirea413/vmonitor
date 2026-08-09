@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+﻿import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 切断に使う操作。
@@ -68,6 +68,7 @@ class DisplayPreferences extends ChangeNotifier {
   static const String _keyShowDebug   = 'display.showDebug';
   static const String _keyShowButton  = 'display.showSettingsButton';
   static const String _keyGesture     = 'display.disconnectGesture';
+  static const String _keyConfirm     = 'display.confirmBeforeDisconnect';
 
   /// 余白の上限。これ以上狭めると映像が小さくなりすぎる。
   static const double maxInset = 80;
@@ -81,6 +82,7 @@ class DisplayPreferences extends ChangeNotifier {
   bool _showSettingsButton = true;
 
   DisconnectGesture _disconnectGesture = DisconnectGesture.threeFingerSwipeDown;
+  bool _confirmBeforeDisconnect = true;
 
   /// 映像とタッチ領域の余白。
   ///
@@ -114,6 +116,21 @@ class DisplayPreferences extends ChangeNotifier {
     await _save();
   }
 
+  /// 切断の前に確認を出すか。
+  ///
+  /// 既定は出す。ジェスチャーは意図せず出ることがあり、作業中に
+  /// 黙って画面が消えると理由が分からない。
+  ///
+  /// ただし慣れて確実に出せるようになると、毎回の確認は手間になる。
+  /// 4 本指タップのように誤爆しにくい操作を選んだ場合も同じ。
+  bool get confirmBeforeDisconnect => _confirmBeforeDisconnect;
+
+  Future<void> setConfirmBeforeDisconnect(bool value) async {
+    _confirmBeforeDisconnect = value;
+    notifyListeners();
+    await _save();
+  }
+
   /// 保存済みの設定を読み込む。読めなければ既定値のまま。
   Future<void> load() async {
     try {
@@ -134,6 +151,10 @@ class DisplayPreferences extends ChangeNotifier {
           gestureIndex < DisconnectGesture.values.length) {
         _disconnectGesture = DisconnectGesture.values[gestureIndex];
       }
+
+      _confirmBeforeDisconnect = prefs.getBool(_keyConfirm) ?? true;
+
+      
 
       notifyListeners();
     } catch (_) {
@@ -179,6 +200,7 @@ class DisplayPreferences extends ChangeNotifier {
       await prefs.setBool(_keyShowDebug,     _showDebugOverlay);
       await prefs.setBool(_keyShowButton,    _showSettingsButton);
       await prefs.setInt(_keyGesture,        _disconnectGesture.index);
+      await prefs.setBool(_keyConfirm,       _confirmBeforeDisconnect);
     } catch (_) {
       // 保存できなくても、この起動の間は設定が効く
     }

@@ -977,10 +977,11 @@ public sealed class ConnectionServer
         // 押した側の反対に承認を出す
         if (trigger == ConnectTrigger.Pc)
         {
-            var (approvedByDevice, leftover) =
-                await AskDeviceAsync(transport, receiver, transportType, ct);
-
-            return (approvedByDevice, leftover ?? pending);
+            // 待ち段階で投げたままの読み出しを必ず引き継ぐ。
+            // 渡さずに AskDeviceAsync が新しく MoveNextAsync を呼ぶと、
+            // 同じ列挙子への同時呼び出しになり NotSupportedException で
+            // セッションごと落ちる。実際にそれが起きていた。
+            return await AskDeviceAsync(transport, receiver, pending, transportType, ct);
         }
 
         SetTransportState(transportType, "この PC で承認を待っています…", connected: false);
@@ -1099,6 +1100,7 @@ public sealed class ConnectionServer
     private async Task<(bool Approved, Task<bool>? Pending)> AskDeviceAsync(
         ITransport                            transport,
         IAsyncEnumerator<(ChannelId Channel, Memory<byte> Data)> receiver,
+        Task<bool>?                           carriedRead,
         VMonitor.Core.Models.TransportType    transportType,
         CancellationToken                     ct)
     {
@@ -1123,7 +1125,10 @@ public sealed class ConnectionServer
 
         while (!ct.IsCancellationRequested)
         {
-            var next = receiver.MoveNextAsync().AsTask();
+            // 前段から引き継いだ読み出しがあれば、それを先に消化する。
+            // 同じ列挙子に MoveNextAsync を重ねて呼ぶことはできない。
+            var next = carriedRead ?? receiver.MoveNextAsync().AsTask();
+            carriedRead = null;
 
             if (await Task.WhenAny(next, timeout) == timeout)
             {

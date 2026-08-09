@@ -321,6 +321,12 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
     if (!mounted) return;
     if (_disconnectAsked) return;   // 二重に出さない
 
+    // 確認を挟まない設定なら、そのまま切る
+    if (!displayPreferences.confirmBeforeDisconnect) {
+      _goHome();
+      return;
+    }
+
     _disconnectAsked = true;
 
     final leave = await showDialog<bool>(

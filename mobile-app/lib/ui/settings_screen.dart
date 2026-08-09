@@ -204,6 +204,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
         ),
+
+        // 確認を挟むかどうか。
+        //
+        // 誤って出たときに戻れるほうがよい場面と、慣れて手数が
+        // 邪魔になる場面の両方がある。「使わない」を選んでいる間は
+        // ジェスチャー自体が無いので、この設定も出さない。
+        if (displayPreferences.disconnectGesture != DisconnectGesture.none)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('切断の前に確認する',
+                style: TextStyle(fontSize: 14)),
+            subtitle: const Text(
+              '外すと、操作した時点ですぐ切断してホームに戻ります。',
+              style: TextStyle(fontSize: 11),
+            ),
+            value: displayPreferences.confirmBeforeDisconnect,
+            onChanged: (value) {
+              displayPreferences.setConfirmBeforeDisconnect(value);
+              setState(() {});
+            },
+          ),
       ],
     );
   }
