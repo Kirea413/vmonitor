@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
+    <RootNamespace>VMonitorVDD</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.28000.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.19041.0</WindowsTargetPlatformMinVersion>
+    <KitDir>$(MSBuildProgramFiles32)\Windows Kits\10\</KitDir>
+    <TargetPlatformVersion>10.0.28000.0</TargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <DriverTargetPlatform>Desktop</DriverTargetPlatform>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <!-- WDK Common props: WindowsUserModeDriver10.0 が自動でインポートするため不要 -->
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  </ImportGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>VMonitorVDD</TargetName>
+    <TargetExt>.dll</TargetExt>
+    <SpectreMitigation>false</SpectreMitigation>
+    <UmdfMajorVersion>2</UmdfMajorVersion>
+    <UmdfMinorVersion>15</UmdfMinorVersion>
+    <EnableInf2cat>false</EnableInf2cat>
+    <RunInfVerif>false</RunInfVerif>
+    <SignTool>false</SignTool>
+    <EnableTestSign>false</EnableTestSign>
+    <!-- msvcrt.lib は VCToolsInstallDir\lib\onecore\x64 にある -->
+    <LibraryPath>$(VCToolsInstallDir)lib\onecore\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>UMDF_USING_NTSTATUS;WIN32_LEAN_AND_MEAN;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>
+        $(MSBuildProgramFiles32)\Windows Kits\10\Include\wdf\umdf\2.15;
+        $(MSBuildProgramFiles32)\Windows Kits\10\Include\10.0.28000.0\um\iddcx\1.2;
+        $(MSBuildProgramFiles32)\Windows Kits\10\Include\10.0.28000.0\um;
+        $(MSBuildProgramFiles32)\Windows Kits\10\Include\10.0.28000.0\shared;
+        %(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <!--
+        ソースは UTF-8。指定しないと日本語環境ではコードページ 932 として
+        読まれ、コメント中の日本語が壊れて構文エラーになる。
+      -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <!--
+        CRT は静的リンクする。
+        UMDF ドライバは WUDFHost.exe の中で DriverStore のフォルダから
+        読み込まれるが、そこに VC++ ランタイム (VCRUNTIME140.dll など) は無い。
+        動的リンクすると DLL のロード自体が失敗し、AddDevice に到達しないまま
+        CM_PROB_FAILED_ADD になる。
+      -->
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <ExceptionHandling>false</ExceptionHandling>
+      <SpectreMitigation>false</SpectreMitigation>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <DebugInformationFormat>OldStyle</DebugInformationFormat>
+      <MinimalRebuild>false</MinimalRebuild>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>
+        $(MSBuildProgramFiles32)\Windows Kits\10\Lib\10.0.28000.0\um\x64\iddcx\1.2\iddcxstub.lib;
+        $(MSBuildProgramFiles32)\Windows Kits\10\Lib\wdf\umdf\x64\2.15\WdfDriverStubUm.lib;
+        ntdll.lib;
+        %(AdditionalDependencies)
+      </AdditionalDependencies>
+      <AdditionalLibraryDirectories>
+        $(MSBuildProgramFiles32)\Windows Kits\10\Lib\10.0.28000.0\um\x64;
+        %(AdditionalLibraryDirectories)
+      </AdditionalLibraryDirectories>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="Driver.cpp" />
+    <ClCompile Include="Device.cpp" />
+    <ClCompile Include="ControlServer.cpp" />
+    <ClCompile Include="SwapChainProcessor.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="Driver.h" />
+    <ClInclude Include="Device.h" />
+    <ClInclude Include="SwapChainProcessor.h" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Inf Include="VMonitorVDD.inf">
+      <UmdfVersionNumber>2.15.0</UmdfVersionNumber>
+    </Inf>
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+
+  <!-- WDK UMDF targets のインポート -->
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<TestSequence>
+  <Test Name="VMonitor.Tests.StreamerFrameRatePropertyTests.FrameRateIsAtLeast30Fps" DisplayName="VMonitor.Tests.StreamerFrameRatePropertyTests.FrameRateIsAtLeast30Fps" Source="C:\Users\User\Documents\vmonitor\pc-client\VMonitor.Tests\bin\Debug\net8.0-windows\VMonitor.Tests.dll" Completed="False" />
+</TestSequence>

@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\VMonitor.Core\VMonitor.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
+  </ItemGroup>
+
+  <!--
+    ネイティブ H.264 エンコーダー (VMonitor.Encoder.vcxproj) の出力を
+    実行ディレクトリへ配置する。存在しない場合はビルドを止めずに続行し、
+    実行時に NativeEncoder.IsAvailable が false になる。
+  -->
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)..\bin\x64\Release\VMonitor.Encoder.dll"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\bin\x64\Release\VMonitor.Encoder.dll')"
+          Link="VMonitor.Encoder.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,231 @@
+<UserControl x:Class="VMonitor.UI.TrustedDevicesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:VMonitor.UI.ViewModels"
+             mc:Ignorable="d"
+             d:DesignHeight="420" d:DesignWidth="640"
+             Background="#F3F4F6">
+
+    <!-- Requirements 8.5: 信頼済みデバイスの一覧表示・削除管理 UI -->
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- 削除ボタン -->
+        <Style x:Key="DangerButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#EF4444"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#FCA5A5"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#DC2626"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- リフレッシュボタン -->
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#9CA3AF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- デバイス行のスタイル -->
+        <Style x:Key="DeviceRowStyle" TargetType="ListViewItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#F9FAFB"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#EFF6FF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="20,16">
+        <Grid.RowDefinitions>
+            <!-- ヘッダー -->
+            <RowDefinition Height="Auto"/>
+            <!-- 説明文 -->
+            <RowDefinition Height="Auto"/>
+            <!-- ビジーインジケーター -->
+            <RowDefinition Height="Auto"/>
+            <!-- デバイス一覧 -->
+            <RowDefinition Height="*"/>
+            <!-- 空状態メッセージ（一覧と同じ行に重ねて表示） -->
+        </Grid.RowDefinitions>
+
+        <!-- ━━━ ヘッダー行 ━━━ -->
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="🔒" FontSize="20" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="信頼済みデバイス" FontSize="18" FontWeight="Bold"
+                           Foreground="#111827" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <Button Grid.Column="1" Content="🔄 更新"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Command="{Binding RefreshCommand}"
+                    VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- ━━━ 説明文 ━━━ -->
+        <TextBlock Grid.Row="1"
+                   Text="接続を許可したデバイスの一覧です。削除すると次回接続時に改めて許可が必要になります。"
+                   FontSize="12" Foreground="#6B7280" TextWrapping="Wrap"
+                   Margin="0,0,0,12"/>
+
+        <!-- ━━━ ビジーインジケーター ━━━ -->
+        <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="4" Margin="0,0,0,8"
+                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+
+        <!-- ━━━ デバイス一覧 ━━━ -->
+        <Border Grid.Row="3" Background="White" CornerRadius="6"
+                BorderBrush="#E5E7EB" BorderThickness="1">
+            <Grid>
+                <!-- テーブルヘッダー -->
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- カラムヘッダー -->
+                <Border Grid.Row="0" Background="#F9FAFB"
+                        BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                        CornerRadius="6,6,0,0" Padding="12,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="1.5*"/>
+                            <ColumnDefinition Width="1.5*"/>
+                            <ColumnDefinition Width="80"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="デバイス名"
+                                   FontSize="12" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="1" Text="信頼登録日時"
+                                   FontSize="12" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="2" Text="最終接続"
+                                   FontSize="12" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="3" Text="操作"
+                                   FontSize="12" FontWeight="SemiBold" Foreground="#6B7280"
+                                   HorizontalAlignment="Center"/>
+                    </Grid>
+                </Border>
+
+                <!-- デバイス行リスト -->
+                <ListView Grid.Row="1"
+                          ItemsSource="{Binding TrustedDevices}"
+                          BorderThickness="0"
+                          ItemContainerStyle="{StaticResource DeviceRowStyle}"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          Background="Transparent">
+
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="#F3F4F6" BorderThickness="0,0,0,1" Padding="12,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="1.5*"/>
+                                        <ColumnDefinition Width="1.5*"/>
+                                        <ColumnDefinition Width="80"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- デバイス名 -->
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Text="📱" FontSize="16" VerticalAlignment="Center"
+                                                   Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding Name}" FontSize="13"
+                                                   Foreground="#111827" VerticalAlignment="Center"
+                                                   FontWeight="SemiBold"/>
+                                    </StackPanel>
+
+                                    <!-- 信頼登録日時 -->
+                                    <TextBlock Grid.Column="1" Text="{Binding TrustedAt}"
+                                               FontSize="12" Foreground="#6B7280"
+                                               VerticalAlignment="Center"/>
+
+                                    <!-- 最終接続日時 -->
+                                    <TextBlock Grid.Column="2" Text="{Binding LastConnectedAt}"
+                                               FontSize="12" Foreground="#6B7280"
+                                               VerticalAlignment="Center"/>
+
+                                    <!-- 削除ボタン -->
+                                    <Button Grid.Column="3" Content="削除"
+                                            Style="{StaticResource DangerButtonStyle}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Command="{Binding DataContext.DeleteDeviceCommand,
+                                                RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+
+                    <!-- 空状態プレースホルダー -->
+                    <ListView.Style>
+                        <Style TargetType="ListView">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding TrustedDevices.Count}" Value="0">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate>
+                                                <StackPanel VerticalAlignment="Center"
+                                                            HorizontalAlignment="Center"
+                                                            Margin="20" MinHeight="120">
+                                                    <TextBlock Text="🔓" FontSize="40"
+                                                               HorizontalAlignment="Center"
+                                                               Margin="0,0,0,10"/>
+                                                    <TextBlock Text="信頼済みデバイスはありません"
+                                                               FontSize="14" Foreground="#6B7280"
+                                                               HorizontalAlignment="Center"
+                                                               FontWeight="SemiBold"/>
+                                                    <TextBlock Text="スマホアプリから接続し、許可ダイアログで「はい」を選択するとここに表示されます"
+                                                               FontSize="12" Foreground="#9CA3AF"
+                                                               HorizontalAlignment="Center"
+                                                               TextAlignment="Center"
+                                                               TextWrapping="Wrap"
+                                                               MaxWidth="360"
+                                                               Margin="0,6,0,0"/>
+                                                </StackPanel>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ListView.Style>
+                </ListView>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

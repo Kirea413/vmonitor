@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\VMonitor.Core\VMonitor.Core.csproj" />
+    <ProjectReference Include="..\VMonitor.Driver\VMonitor.Driver.csproj" />
+    <ProjectReference Include="..\VMonitor.Session\VMonitor.Session.csproj" />
+    <ProjectReference Include="..\VMonitor.Streamer\VMonitor.Streamer.csproj" />
+  </ItemGroup>
+
+  <!--
+    VMonitor.Encoder.dll のコピーは VMonitor.Streamer 側で定義している。
+    エンコーダーを直接使うのは Streamer なので、配置もそちらに持たせる。
+    ここで二重に定義すると、参照する側で同じ相対パスの発行ファイルが
+    重複して publish が失敗する (NETSDK1152)。
+  -->
+
+  <PropertyGroup>
+    <!--
+      更新確認はこの値と GitHub Releases のタグを比べる。
+      installer\vmonitor_setup.iss の AppVersion と必ず揃えること。
+      ずれると、更新済みなのに「新版あり」と出続ける。
+    -->
+    <Version>1.1.0</Version>
+
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!--
+      画面ごとの拡大率をそのまま扱うためのマニフェスト。
+      これが無いと、拡大率の違うディスプレイの座標と大きさが
+      換算された値で返り、映像の縦横比とタッチ座標がずれる。
+    -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+</Project>

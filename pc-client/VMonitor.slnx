@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="VMonitor.Core/VMonitor.Core.csproj" />
+  <Project Path="VMonitor.Diagnostics/VMonitor.Diagnostics.csproj" />
+  <Project Path="VMonitor.Driver/VMonitor.Driver.csproj" />
+  <Project Path="VMonitor.Session/VMonitor.Session.csproj" />
+  <Project Path="VMonitor.Streamer/VMonitor.Streamer.csproj" />
+  <Project Path="VMonitor.Tests/VMonitor.Tests.csproj" />
+  <Project Path="VMonitor.UI/VMonitor.UI.csproj" />
+</Solution>

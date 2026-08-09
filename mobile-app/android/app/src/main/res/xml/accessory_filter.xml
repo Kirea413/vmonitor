@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PC 側が名乗るアクセサリーの識別情報。
+
+  ここに書いた値と、PC が ACCESSORY_SEND_STRING で送る文字列が
+  一致していないと、Android は「対応アプリが無い」と判断して
+  アクセサリーモードから抜けてしまう。
+
+  PC 側の定義: pc-client/VMonitor.Session/Transport/AoaDevice.cs
+    AccessoryManufacturer / AccessoryModel / AccessoryVersion
+-->
+<resources>
+    <usb-accessory
+        manufacturer="vmonitor"
+        model="vmonitor Virtual Display"
+        version="1.0" />
+</resources>

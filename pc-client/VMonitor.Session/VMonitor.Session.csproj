@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\VMonitor.Core\VMonitor.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- LibUsbDotNet: WinUSB 直接通信 (ADB 不要) -->
+    <PackageReference Include="LibUsbDotNet" Version="3.0.102-alpha" />
+    <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
+    <!--
+      Windows から見た USB デバイスの状態を読むために使う。
+      ドライバが当たっていないのか adb に取られているのか、
+      libusb のエラーだけでは切り分けられないため。
+    -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>

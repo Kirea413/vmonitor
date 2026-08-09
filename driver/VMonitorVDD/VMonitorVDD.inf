@@ -1,0 +1,133 @@
+; vmonitor Virtual Display Driver
+; IddCx 1.10 UMDF2 - Windows 10/11 対応
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Display
+ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
+
+; WDDM 2.0 以降の表示アダプターであることを宣言する。
+;
+; これが無いと、デバイスは Display クラスに入っていても
+; グラフィックススタックから表示アダプターとして扱われない。
+; その結果 IddCxAdapterInitAsync は成功を返すのに初期化が永久に完了せず、
+; コールバックが一つも呼ばれないまま
+; IddCxMonitorCreate が STATUS_OPERATION_IN_PROGRESS を返し続ける。
+;
+; 純正の間接ディスプレイドライバ (rdpidd.inf / miradisp.inf) にも入っている。
+ClassVer    = 2.0
+
+Provider    = %ManufacturerName%
+CatalogFile = VMonitorVDD.cat
+DriverVer   = 08/06/2026, 1.0.0.2
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir    = 13   ; Driver Store (Windows 10 1803+)
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+VMonitorVDD.dll = 1,,
+
+; ──────────────────────────────────────────────────────────────
+; Manufacturer & Models
+; ──────────────────────────────────────────────────────────────
+
+[Manufacturer]
+%ManufacturerName% = Standard, NTamd64.10.0...19041
+
+[Standard.NTamd64.10.0...19041]
+%DeviceName% = VMonitorVDD_Install, Root\VMonitorVDD
+
+; ──────────────────────────────────────────────────────────────
+; Install
+; ──────────────────────────────────────────────────────────────
+
+; UMDF ドライバは WUDFRd (リフレクター) を関数ドライバーとして使う。
+; 参照するセクション名は Windows に同梱の WUDFRD.inf に実在するものと
+; 一致していなければならない。存在しないセクションを Needs に書くと
+; AddService が 1 つも展開されず、デバイスのインストールが
+; 0xE0000219 (関数ドライバーが指定されていない) で失敗する。
+;
+; WUDFRD.inf が公開しているセクション: WUDFRD.NT / WUDFRD.NT.HW / WUDFRD.NT.Services
+
+[VMonitorVDD_Install.NT]
+CopyFiles = VMonitorVDD_CopyFiles
+Include   = WUDFRD.inf
+Needs     = WUDFRD.NT
+
+[VMonitorVDD_CopyFiles]
+VMonitorVDD.dll
+
+; .NT.hw は UMDF デバイスのセキュリティ記述子などを設定する。
+; 省略するとリフレクターがデバイスを開けない。
+[VMonitorVDD_Install.NT.hw]
+Include = WUDFRD.inf
+Needs   = WUDFRD.NT.HW
+AddReg  = VMonitorVDD_HardwareDeviceSettings
+
+; 間接ディスプレイに必須の設定。
+;
+; UpperFilters に IndirectKmd を入れると、間接ディスプレイ用の
+; カーネルモードフィルタがこのデバイスに載る。
+; これが無いとグラフィックススタックがアダプターに接続せず、
+; IddCxAdapterInitAsync は成功を返すのに EvtIddCxAdapterInitFinished が
+; 永久に呼ばれない。結果として IddCxMonitorCreate は
+; STATUS_OPERATION_IN_PROGRESS を返し続け、モニターを作れない。
+[VMonitorVDD_HardwareDeviceSettings]
+HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
+HKR, "WUDF", "DeviceGroupId", %REG_SZ%, "VMonitorVDDGroup"
+
+[VMonitorVDD_Install.NT.Services]
+Include = WUDFRD.inf
+Needs   = WUDFRD.NT.Services
+
+[VMonitorVDD_Install.NT.Wdf]
+UmdfService              = VMonitorVDD, VMonitorVDD_UmdfInstall
+UmdfServiceOrder         = VMonitorVDD
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy     = AllowNullAndUnknownFileObjects
+UmdfFsContextUsePolicy   = CannotUseFsContexts
+UmdfImpersonationLevel   = Impersonation
+UmdfMethodNeitherAction  = Copy
+; 間接ディスプレイは専用のホストプロセスで動かす（純正の IddCx ドライバと同じ）
+UmdfHostProcessSharing   = ProcessSharingDisabled
+
+[VMonitorVDD_UmdfInstall]
+; UMDF のバージョンはこの PC で実際に動いている構成に合わせる。
+;
+; 2.31.0 を要求すると UMDF ホストが読み込みを拒否し、
+; STATUS_INVALID_PARAMETER (0xD000000D) で失敗する。
+; インストール時にも「schema version 2.23 なのに 2.31 が必要」と警告が出る。
+; 純正の間接ディスプレイドライバ (rdpidd.inf) は 2.15.0 を使っている。
+UmdfLibraryVersion = 2.15.0
+ServiceBinary      = %13%\VMonitorVDD.dll
+
+; UmdfExtensions には「登録済みの拡張名」を書く。ファイル名ではない。
+; この PC に登録されている IddCx 拡張の名前は IddCx0102 で、
+; 純正の間接ディスプレイドライバ (rdpidd.inf / miradisp.inf) も同じ値を使う。
+;
+; ここに 'IddCx' と書くと名前が解決できず、UMDF がドライバ DLL を
+; ロードしないまま CM_PROB_FAILED_ADD になる。DriverEntry にも到達しないため
+; ドライバ側のログには何も残らず、原因が見えなくなる。
+;
+; 数字は拡張の登録名であって、ドライバがコンパイル時に選ぶ IddCx API の
+; バージョン (IDDCX_VERSION_MINOR) とは別物。
+UmdfExtensions     = IddCx0102
+
+; ──────────────────────────────────────────────────────────────
+; Strings
+; ──────────────────────────────────────────────────────────────
+
+[Strings]
+ManufacturerName = "vmonitor"
+DiskName         = "vmonitor Virtual Display Driver"
+DeviceName       = "vmonitor Virtual Display Adapter"
+
+; AddReg で使うレジストリ値の型
+REG_SZ        = 0x00000000
+REG_MULTI_SZ  = 0x00010000
+REG_EXPAND_SZ = 0x00020000
+REG_DWORD     = 0x00010001

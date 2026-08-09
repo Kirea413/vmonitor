@@ -1,0 +1,77 @@
+;
+; VMonitorAOA.inf
+;
+; Android のアクセサリーインターフェースに WinUSB を割り当てる。
+;
+; 端末をアクセサリーモードへ切り替えると、USB から一度消えて
+; VID 0x18D1 / PID 0x2D0x として再列挙してくる。このとき現れる
+; 「Android Accessory Interface」には Windows 標準のドライバが無く、
+; デバイスマネージャーでは CM_PROB_FAILED_INSTALL (コード 28) になる。
+; ドライバが当たっていないインターフェースは開けないので、
+; libusb からバルク転送を張ることもできない。
+;
+; ここで WinUSB を割り当てることで、ユーザーモードのアプリから
+; そのままエンドポイントを掴めるようになる。winusb.sys は Windows に
+; 最初から入っている Microsoft 署名済みのドライバなので、
+; 新しいカーネルモジュールを持ち込むことにはならない。
+; そのためセキュアブートを切る必要も、テスト署名モードも要らない。
+;
+; 対応する PID:
+;   0x2D00  アクセサリーのみ         → 単一インターフェース
+;   0x2D01  アクセサリー + ADB       → 複合デバイス。アクセサリーは MI_00
+;
+; オーディオ付きの 0x2D02〜0x2D05 は、こちらから
+; ACCESSORY_SET_AUDIO_MODE を送らない限り現れないため対象外にしている。
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ManufacturerName%
+CatalogFile = VMonitorAOA.cat
+DriverVer   = 08/06/2026,1.0.0.0
+PnpLockdown = 1
+
+[Manufacturer]
+%ManufacturerName% = VMonitorAOA, NTamd64, NTarm64
+
+; ── 対象デバイス ──────────────────────────────────────────────────────
+
+[VMonitorAOA.NTamd64]
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00&MI_00
+%DeviceName_AccessoryAdb% = USB_Install, USB\VID_18D1&PID_2D01&MI_00
+
+[VMonitorAOA.NTarm64]
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00&MI_00
+%DeviceName_AccessoryAdb% = USB_Install, USB\VID_18D1&PID_2D01&MI_00
+
+; ── WinUSB の組み込み ─────────────────────────────────────────────────
+;
+; winusb.inf の定義をそのまま取り込む。自前のバイナリは何も配らない。
+
+[USB_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[USB_Install.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg = VMonitorAOA_AddReg
+
+; アプリ側からこのインターフェースを名指しで探せるようにする。
+; libusb は WinUSB に束縛されたデバイスを自力で見つけるため必須ではないが、
+; SetupDi で直接列挙したいときのために付けておく。
+[VMonitorAOA_AddReg]
+HKR,, DeviceInterfaceGUIDs, 0x00010000, "{CE8E85B3-D8E4-4B77-B435-3661CA4E81D9}"
+
+; ── 文字列 ────────────────────────────────────────────────────────────
+
+[Strings]
+ManufacturerName        = "vmonitor"
+DeviceName_Accessory    = "vmonitor Android Accessory"
+DeviceName_AccessoryAdb = "vmonitor Android Accessory (ADB 併用)"

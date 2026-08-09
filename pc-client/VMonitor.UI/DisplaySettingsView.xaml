@@ -1,0 +1,281 @@
+<UserControl x:Class="VMonitor.UI.DisplaySettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:VMonitor.UI.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:DisplaySettingsViewModel}"
+             d:DesignWidth="360" d:DesignHeight="560"
+             Background="#F3F4F6">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- bool 反転コンバーター（IsBusy → IsEnabled 用） -->
+        <local:InverseBoolConverter x:Key="InverseBool"
+            xmlns:local="clr-namespace:VMonitor.UI"/>
+
+        <!-- プライマリボタン -->
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#93C5FD"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- セカンダリボタン -->
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#9CA3AF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- セクションヘッダースタイル -->
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <!-- ラベルスタイル -->
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#6B7280"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,12">
+
+            <!-- ━━━ タイトル ━━━ -->
+            <TextBlock Text="ディスプレイ設定"
+                       FontSize="16" FontWeight="Bold"
+                       Foreground="#111827" Margin="0,0,0,16"/>
+
+            <!-- ━━━ ビジーインジケーター ━━━ -->
+            <ProgressBar IsIndeterminate="True" Height="4" Margin="0,0,0,12"
+                         Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+
+            <!-- ━━━ ステータスメッセージ ━━━ -->
+            <Border CornerRadius="4" Padding="10,8" Margin="0,0,0,12"
+                    Visibility="{Binding StatusMessage,
+                        Converter={StaticResource BoolToVis},
+                        TargetNullValue=Collapsed,
+                        FallbackValue=Collapsed}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="#DCFCE7"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasError}" Value="True">
+                                <Setter Property="Background" Value="#FEE2E2"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#15803D"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasError}" Value="True">
+                                    <Setter Property="Foreground" Value="#B91C1C"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Border>
+
+            <!-- ━━━ セクション 1: ディスプレイモード (Requirements 7.1) ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1"
+                    Margin="0,0,0,12">
+                <StackPanel>
+
+                    <!-- セクションヘッダー -->
+                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
+                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <TextBlock Text="ディスプレイモード"
+                                   Style="{StaticResource SectionHeaderStyle}"
+                                   Margin="0"/>
+                    </Border>
+
+                    <StackPanel Margin="12,10">
+
+                        <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                   Text="スマートフォンの表示方法を選択してください"/>
+
+                        <!-- 複製モード -->
+                        <RadioButton Content="複製（クローン）"
+                                     IsChecked="{Binding IsCloneMode, Mode=TwoWay}"
+                                     Margin="0,0,0,6" FontSize="13" Foreground="#374151"
+                                     IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+                            <RadioButton.ToolTip>
+                                メインディスプレイと同じ内容をスマートフォンに表示します
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+
+                        <!-- 拡張モード -->
+                        <RadioButton Content="拡張"
+                                     IsChecked="{Binding IsExtendMode, Mode=TwoWay}"
+                                     Margin="0,0,0,6" FontSize="13" Foreground="#374151"
+                                     IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+                            <RadioButton.ToolTip>
+                                スマートフォンをデスクトップの拡張として使用します
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+
+                        <!-- セカンダリのみ -->
+                        <RadioButton Content="セカンダリのみ"
+                                     IsChecked="{Binding IsSecondaryOnlyMode, Mode=TwoWay}"
+                                     Margin="0,0,0,10" FontSize="13" Foreground="#374151"
+                                     IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+                            <RadioButton.ToolTip>
+                                メインディスプレイを無効化し、スマートフォンのみに表示します
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+
+                        <!-- 仮想ディスプレイを必須にするか -->
+                        <Separator Margin="0,4,0,10"/>
+
+                        <CheckBox Content="仮想ディスプレイを用意できないときは PC 画面のミラーで接続する"
+                                  IsChecked="{Binding AllowMirrorFallback, Mode=TwoWay}"
+                                  Margin="0,0,0,4" FontSize="12" Foreground="#374151"
+                                  IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+                            <CheckBox.ToolTip>
+                                既定では外れています。スマートフォンは 2 枚目のモニターとして使うため、
+                                仮想ディスプレイを用意できないときは接続を中止します。
+                                入れると、ドライバが未導入でも PC のメイン画面をそのまま映して接続できます。
+                            </CheckBox.ToolTip>
+                        </CheckBox>
+
+                        <TextBlock Text="※ 既定では拡張ディスプレイのみを使います（ミラーには切り替わりません）"
+                                   FontSize="11" Foreground="#6B7280"
+                                   TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                        <!-- 適用ボタン -->
+                        <Button Content="モードを適用"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                HorizontalAlignment="Left"
+                                Command="{Binding ApplyDisplayModeCommand}"/>
+
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ━━━ セクション 2: 解像度設定 (Requirements 7.2) ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1"
+                    Margin="0,0,0,12">
+                <StackPanel>
+
+                    <!-- セクションヘッダー -->
+                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
+                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <TextBlock Text="解像度設定"
+                                   Style="{StaticResource SectionHeaderStyle}"
+                                   Margin="0"/>
+                    </Border>
+
+                    <StackPanel Margin="12,10">
+
+                        <!-- プリセット ComboBox -->
+                        <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                   Text="解像度プリセット"/>
+                        <ComboBox ItemsSource="{Binding ResolutionPresets}"
+                                  SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                                  DisplayMemberPath="Label"
+                                  FontSize="13"
+                                  Margin="0,0,0,10"
+                                  IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"/>
+
+                        <!-- 手動入力フォーム（プリセット「手動入力...」選択時に表示） -->
+                        <StackPanel Visibility="{Binding IsManualResolution,
+                                        Converter={StaticResource BoolToVis}}">
+
+                            <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                       Text="手動入力（640〜3840 × 480〜2160）"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- 幅 -->
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="幅 (px)"
+                                               Style="{StaticResource FieldLabelStyle}"/>
+                                    <TextBox Text="{Binding ManualWidth, UpdateSourceTrigger=PropertyChanged}"
+                                             FontSize="13" Padding="6,4"
+                                             BorderBrush="#D1D5DB" BorderThickness="1"/>
+                                </StackPanel>
+
+                                <!-- 区切り記号 -->
+                                <TextBlock Grid.Column="1"
+                                           Text="×"
+                                           FontSize="16" Foreground="#6B7280"
+                                           VerticalAlignment="Bottom"
+                                           Margin="8,0,8,4"/>
+
+                                <!-- 高さ -->
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="高さ (px)"
+                                               Style="{StaticResource FieldLabelStyle}"/>
+                                    <TextBox Text="{Binding ManualHeight, UpdateSourceTrigger=PropertyChanged}"
+                                             FontSize="13" Padding="6,4"
+                                             BorderBrush="#D1D5DB" BorderThickness="1"/>
+                                </StackPanel>
+                            </Grid>
+
+                        </StackPanel>
+
+                        <!-- 解像度適用ボタン -->
+                        <Button Content="解像度を適用"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                HorizontalAlignment="Left"
+                                Command="{Binding ApplyResolutionCommand}"/>
+
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ━━━ 設定保存 (Requirements 7.5) ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1">
+                <StackPanel Margin="12,10">
+                    <TextBlock Style="{StaticResource FieldLabelStyle}"
+                               Text="現在の設定をデフォルトとして保存すると、次回の接続時に自動的に適用されます。"/>
+
+                    <Button Content="設定を保存"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            HorizontalAlignment="Left"
+                            Command="{Binding SaveSettingsCommand}"/>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

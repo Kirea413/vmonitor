@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+
+  <assemblyIdentity version="1.0.0.0" name="VMonitor.UI"/>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <!--
+        画面ごとの拡大率をそのまま扱う（Per-Monitor V2）。
+
+        既定の WPF は「システム DPI 対応」止まりで、システムと違う拡大率の
+        ディスプレイについては座標と大きさが換算されて返ってくる。
+        メイン画面が 125%、仮想ディスプレイが 100% という状況では、
+        1080x1920 で作った仮想ディスプレイが 1350x2400 と報告され、
+        原点も 1920 ではなく 2400 になった。
+
+        この換算値のままだと次の 2 つが壊れる。
+          - 取り込むディスプレイの大きさ（映像の縦横比）
+          - タッチを注入する座標（実際の画素位置とずれて画面外に落ちる）
+
+        Per-Monitor V2 にすると、どちらも実際の画素で扱える。
+      -->
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+
+</assembly>

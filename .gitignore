@@ -1,0 +1,67 @@
+# ── ビルド成果物 ───────────────────────────────────────────────────────
+#
+# 作り直せるものは置かない。置くと履歴が重くなり、
+# GitHub の 100MB 制限にも当たる（実際に何本か超えている）。
+
+# .NET
+bin/
+obj/
+*.user
+
+# ネイティブ（エンコーダー・ドライバ）
+pc-client/bin/
+pc-client/publish/
+driver/bin/
+driver/obj/
+driver/dist/
+*.pdb
+*.ilk
+
+# Flutter / Android
+mobile-app/build/
+mobile-app/.dart_tool/
+mobile-app/.flutter-plugins
+mobile-app/.flutter-plugins-dependencies
+mobile-app/android/.gradle/
+mobile-app/android/app/build/
+mobile-app/ios/Flutter/Generated.xcconfig
+mobile-app/ios/Flutter/flutter_export_environment.sh
+mobile-app/ios/Flutter/ephemeral/
+*.apk
+*.aab
+
+# インストーラー
+#
+# payload は build.ps1 がソースから組み立て直すもの。
+# output はそこから作られる setup.exe。どちらも成果物なので置かない。
+# 配布は GitHub Releases に添付する形で行う。
+installer/payload/
+installer/output/
+installer/obj/
+installer/pc-client/
+
+# 署名済みドライバの置き場。
+#
+# どちらも build-and-sign.ps1 が作った driver/dist のコピーで、
+# ソースではない。置くと、古い署名済みバイナリが履歴に残り続け、
+# どれが正なのか分からなくなる。
+pc-client/VMonitor.Installer/driver/
+test/
+
+# ── 鍵と証明書 ─────────────────────────────────────────────────────────
+#
+# テスト署名の秘密鍵は証明書ストアにあり、ここには置いていない。
+# 取り違えて置いてしまったときに巻き込まないよう、念のため弾いておく。
+*.pfx
+*.p12
+*.snk
+*.jks
+*.keystore
+key.properties
+
+# ── その他 ─────────────────────────────────────────────────────────────
+.vs/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

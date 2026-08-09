@@ -1,0 +1,24 @@
+name: vmonitor
+description: vmonitor smartphone app - use your phone as a virtual monitor for Windows PC.
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  multicast_dns: ^0.3.2+1
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # fast_check は pub.dev に存在しないため glados を使用する
+  # (PBT タスク 8.2, 8.3 で使用)
+  glados: ^1.1.7
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,446 @@
+<UserControl x:Class="VMonitor.UI.ErrorLogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:VMonitor.UI.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:ErrorLogViewModel}"
+             d:DesignWidth="400" d:DesignHeight="520"
+             Background="#F3F4F6">
+
+    <!-- Requirements 9.5: ログファイルパス表示 / Requirements 7.5: ビットレート設定の永続化 -->
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <local:InverseBoolConverter x:Key="InverseBool"
+            xmlns:local="clr-namespace:VMonitor.UI"/>
+
+        <!-- プライマリボタン -->
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#93C5FD"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- セカンダリボタン -->
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#9CA3AF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- セクションヘッダースタイル -->
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <!-- ラベルスタイル -->
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#6B7280"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,12">
+
+            <!-- ━━━ タイトル ━━━ -->
+            <TextBlock Text="エラーログ・設定"
+                       FontSize="16" FontWeight="Bold"
+                       Foreground="#111827" Margin="0,0,0,16"/>
+
+            <!-- ━━━ ビジーインジケーター ━━━ -->
+            <ProgressBar IsIndeterminate="True" Height="4" Margin="0,0,0,12"
+                         Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+
+            <!-- ━━━ ステータスメッセージ ━━━ -->
+            <Border CornerRadius="4" Padding="10,8" Margin="0,0,0,12"
+                    Visibility="{Binding StatusMessage,
+                        Converter={StaticResource BoolToVis},
+                        TargetNullValue=Collapsed,
+                        FallbackValue=Collapsed}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="#DCFCE7"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasError}" Value="True">
+                                <Setter Property="Background" Value="#FEE2E2"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#15803D"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasError}" Value="True">
+                                    <Setter Property="Foreground" Value="#B91C1C"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Border>
+
+            <!-- ━━━ セクション 1: ログファイルの場所 (Requirements 9.5) ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1"
+                    Margin="0,0,0,12">
+                <StackPanel>
+
+                    <!-- セクションヘッダー -->
+                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
+                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📄" FontSize="15" VerticalAlignment="Center"
+                                       Margin="0,0,6,0"/>
+                            <TextBlock Text="エラーログファイルの場所"
+                                       Style="{StaticResource SectionHeaderStyle}"
+                                       Margin="0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Margin="12,10">
+
+                        <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                   Text="ログファイルパス"/>
+
+                        <!-- ログパス表示（読み取り専用） -->
+                        <TextBox Text="{Binding LogFilePath, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 FontSize="12"
+                                 FontFamily="Consolas"
+                                 Padding="6,4"
+                                 BorderBrush="#D1D5DB"
+                                 BorderThickness="1"
+                                 Background="#F9FAFB"
+                                 Foreground="#374151"
+                                 TextWrapping="Wrap"
+                                 Margin="0,0,0,10"/>
+
+                        <!-- ボタン行 -->
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="📁 フォルダーを開く"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Margin="0,0,8,0"
+                                    Command="{Binding OpenLogFolderCommand}"/>
+
+                            <Button Content="📄 ログを開く"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding OpenLogFileCommand}"/>
+                        </StackPanel>
+
+                        <!-- ログファイルが存在しない場合の注記 -->
+                        <TextBlock Margin="0,8,0,0"
+                                   FontSize="11" Foreground="#9CA3AF"
+                                   Visibility="{Binding LogFileExists,
+                                       Converter={StaticResource BoolToVis},
+                                       FallbackValue=Collapsed}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LogFileExists}" Value="False">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                            ※ ログファイルはまだ作成されていません。エラー発生時に自動的に作成されます。
+                        </TextBlock>
+
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ━━━ セクション 2: ディスプレイの扱い ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1"
+                    Margin="0,0,0,12">
+                <StackPanel>
+                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
+                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🖥" FontSize="15" VerticalAlignment="Center"
+                                       Margin="0,0,6,0"/>
+                            <TextBlock Text="ディスプレイの扱い"
+                                       Style="{StaticResource SectionHeaderStyle}"
+                                       Margin="0"/>
+                        </StackPanel>
+                    </Border>
+                    <StackPanel Margin="12,10">
+
+                        <TextBlock FontSize="12" Foreground="#374151" TextWrapping="Wrap"
+                                   Margin="0,0,0,8"
+                                   Text="既定では、スマートフォンを 2 枚目のモニター（拡張ディスプレイ）としてのみ使います。&#x0a;仮想ディスプレイを用意できないときは接続を中止します。"/>
+
+                        <CheckBox Content="仮想ディスプレイを用意できないときは PC 画面のミラーで接続する"
+                                  IsChecked="{Binding AllowMirrorFallback, Mode=TwoWay}"
+                                  FontSize="13" Margin="0,0,0,4"/>
+
+                        <TextBlock FontSize="11" Foreground="#6B7280" Margin="20,0,0,10"
+                                   TextWrapping="Wrap"
+                                   Text="チェックを入れると、仮想ディスプレイドライバが未導入でも PC のメイン画面をそのまま映して接続できます。&#x0a;ただし表示されるのは PC と同じ画面になり、拡張デスクトップにはなりません。"/>
+
+                        <!-- ── 拡大率 ──
+                             スマホの画素数そのままだと Windows の文字が細かすぎる。
+                             解像度を下げて作ることで、見た目を大きくする。 -->
+                        <Separator Margin="0,4,0,10"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                            <TextBlock Text="拡大率" FontWeight="SemiBold" FontSize="13"/>
+                            <TextBlock Text="{Binding ScaleText}" FontSize="13"
+                                       Foreground="#2563EB" Margin="10,0,0,0"/>
+                        </StackPanel>
+
+                        <TextBlock FontSize="11" Foreground="#6B7280" TextWrapping="Wrap"
+                                   Margin="0,0,0,4"
+                                   Text="大きくするほど文字は読みやすくなりますが、映せる範囲は狭くなります。次の接続から有効です。"/>
+
+                        <Slider Minimum="100" Maximum="300"
+                                TickFrequency="25" IsSnapToTickEnabled="True"
+                                Value="{Binding ScalePercent, Mode=TwoWay}"
+                                Margin="0,0,0,10"/>
+
+                        <!-- ── タッチ ── -->
+                        <CheckBox Content="スマホの操作を PC に反映する"
+                                  IsChecked="{Binding EnableTouch, Mode=TwoWay}"
+                                  FontSize="13" Margin="0,0,0,4"/>
+
+                        <TextBlock FontSize="11" Foreground="#6B7280" Margin="20,0,0,10"
+                                   TextWrapping="Wrap"
+                                   Text="外すと「見るだけ」になります。動画などを映しておくだけのときに、画面に触れてマウスが飛ぶのを防げます。"/>
+
+                        <!-- ── 更新 ──
+                             見つけても勝手に適用しない。ドライバの入れ替えと
+                             UAC が絡むので、押されてから進める。 -->
+                        <Separator Margin="0,4,0,10"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2"
+                                    DataContext="{Binding Update}">
+                            <TextBlock Text="バージョン" FontWeight="SemiBold" FontSize="13"/>
+                            <TextBlock Text="{Binding CurrentVersionText}" FontSize="13"
+                                       Foreground="#2563EB" Margin="10,0,0,0"/>
+                        </StackPanel>
+
+                        <StackPanel DataContext="{Binding Update}">
+                            <TextBlock Text="{Binding Status}" FontSize="11"
+                                       Foreground="#6B7280" TextWrapping="Wrap"
+                                       Margin="0,2,0,6"/>
+
+                            <ProgressBar Height="4" Margin="0,0,0,8"
+                                         Minimum="0" Maximum="1"
+                                         Value="{Binding Progress, Mode=OneWay}"
+                                         Visibility="{Binding IsBusy,
+                                             Converter={StaticResource BoolToVis}}"/>
+
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="更新を確認" MinWidth="96" Padding="8,4"
+                                        Command="{Binding CheckCommand}"/>
+
+                                <Button Content="更新する" MinWidth="96" Padding="8,4"
+                                        Margin="8,0,0,0"
+                                        Command="{Binding InstallCommand}"
+                                        Visibility="{Binding HasUpdate,
+                                            Converter={StaticResource BoolToVis}}"/>
+
+                                <Button Content="配布ページを開く" Padding="8,4"
+                                        Margin="8,0,0,0"
+                                        Command="{Binding OpenReleasesCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Button Content="設定を保存"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                HorizontalAlignment="Left"
+                                Command="{Binding SaveDisplayPolicyCommand}"/>
+
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ━━━ セクション 3: USB 接続モード設定 ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1"
+                    Margin="0,0,0,12">
+                <StackPanel>
+                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
+                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🔌" FontSize="15" VerticalAlignment="Center"
+                                       Margin="0,0,6,0"/>
+                            <TextBlock Text="USB 接続モード"
+                                       Style="{StaticResource SectionHeaderStyle}"
+                                       Margin="0"/>
+                        </StackPanel>
+                    </Border>
+                    <StackPanel Margin="12,10">
+
+                        <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                   Text="USB 接続方式"/>
+
+                        <!-- WinUSB モード (デフォルト) -->
+                        <RadioButton x:Name="WinUsbRadio"
+                                     GroupName="UsbMode"
+                                     IsChecked="{Binding IsWinUsbMode, Mode=OneWay}"
+                                     Content="USB 直結（ADB 不要・推奨）"
+                                     FontSize="13" Margin="0,4,0,2"
+                                     Command="{Binding SetUsbModeCommand}"
+                                     CommandParameter="WinUsb"/>
+                        <TextBlock FontSize="11" Foreground="#6B7280" Margin="20,0,0,8"
+                                   TextWrapping="Wrap"
+                                   Text="AOA で端末を直接掴みます。ADB も開発者オプションも不要です。&#x0a;初回のみ端末側で「このアプリに USB アクセスを許可しますか？」が表示されます。&#x0a;※ adb サーバーが起動していると USB を占有されて接続できません（adb kill-server で停止）。"/>
+
+                        <!-- ADB フォールバックモード -->
+                        <RadioButton x:Name="AdbRadio"
+                                     GroupName="UsbMode"
+                                     IsChecked="{Binding IsAdbMode, Mode=OneWay}"
+                                     Content="ADB フォールバック（開発者向け）"
+                                     FontSize="13" Margin="0,0,0,2"
+                                     Command="{Binding SetUsbModeCommand}"
+                                     CommandParameter="Adb"/>
+                        <TextBlock FontSize="11" Foreground="#6B7280" Margin="20,0,0,8"
+                                   TextWrapping="Wrap"
+                                   Text="ADB のトンネル越しに接続します。ADB のインストールと、端末の USB デバッグが必要です。&#x0a;接続前に手動で次を実行してください: adb reverse tcp:7979 tcp:7979"/>
+
+                        <!-- ADB 利用可否インジケーター -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock FontSize="11" Foreground="#6B7280" Text="ADB 状態: "/>
+                            <TextBlock FontSize="11"
+                                       Text="{Binding AdbStatusText}"
+                                       Foreground="{Binding AdbStatusColor}"/>
+                        </StackPanel>
+
+                        <Button Content="設定を保存"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                HorizontalAlignment="Left"
+                                Command="{Binding SaveUsbModeCommand}"/>
+
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ━━━ セクション 3: ビットレート設定 (Requirements 7.5) ━━━ -->
+            <Border Background="White" CornerRadius="6"
+                    BorderBrush="#E5E7EB" BorderThickness="1">
+                <StackPanel>
+
+                    <!-- セクションヘッダー -->
+                    <Border Background="#F9FAFB" CornerRadius="6,6,0,0"
+                            BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚙" FontSize="15" VerticalAlignment="Center"
+                                       Margin="0,0,6,0"/>
+                            <TextBlock Text="ストリーミング設定"
+                                       Style="{StaticResource SectionHeaderStyle}"
+                                       Margin="0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Margin="12,10">
+
+                        <!-- ビットレート入力 -->
+                        <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                   Text="ターゲットビットレート"/>
+
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- スライダー -->
+                            <Slider Grid.Column="0"
+                                    Minimum="{Binding SliderMinMbps}"
+                                    Maximum="{Binding SliderMaxMbps}"
+                                    Value="{Binding BitrateMbps, Mode=OneWay}"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,12,0"
+                                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
+                                    x:Name="BitrateSlider"
+                                    ValueChanged="BitrateSlider_ValueChanged"/>
+
+                            <!-- Mbps 表示 -->
+                            <TextBlock Grid.Column="1"
+                                       VerticalAlignment="Center"
+                                       FontSize="13"
+                                       Foreground="#374151"
+                                       MinWidth="70">
+                                <!-- Run.Text は既定で TwoWay。読み取り専用プロパティに
+                                     そのまま繋ぐと起動時に例外になるため OneWay を明示する。 -->
+                                <Run Text="{Binding BitrateMbps, Mode=OneWay, StringFormat='{}{0:F1}'}"/>
+                                <Run Text=" Mbps"/>
+                            </TextBlock>
+                        </Grid>
+
+                        <!-- 数値入力ボックス -->
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource FieldLabelStyle}"
+                                           Text="数値入力 (bps) — デフォルト: 10000000 (10 Mbps)"/>
+                                <TextBox x:Name="BitrateTextBox"
+                                         FontSize="13"
+                                         Padding="6,4"
+                                         BorderBrush="#D1D5DB"
+                                         BorderThickness="1"
+                                         IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
+                                         Text="{Binding BitrateBps, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="1000000 〜 50000000 の範囲で入力してください"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- 範囲表示 -->
+                        <TextBlock FontSize="11" Foreground="#9CA3AF" Margin="0,0,0,12"
+                                   Text="範囲: 1 Mbps 〜 50 Mbps（デフォルト: 10 Mbps）"/>
+
+                        <!-- 保存ボタン -->
+                        <Button Content="設定を保存"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                HorizontalAlignment="Left"
+                                Command="{Binding SaveBitrateCommand}"
+                                IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
+                                ToolTip="設定を保存すると次回のセッション確立時に適用されます"/>
+
+                        <TextBlock FontSize="11" Foreground="#9CA3AF" Margin="0,6,0,0"
+                                   Text="保存した設定は次回のセッション確立時に自動的に適用されます。"/>
+
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
