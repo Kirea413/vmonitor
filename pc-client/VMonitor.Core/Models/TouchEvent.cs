@@ -33,6 +33,14 @@ public class TouchPoint
 
     /// <summary>タッチの現在フェーズ。</summary>
     public required TouchPhase Phase { get; init; }
+
+    /// <summary>ペン（スタイラス）による接触か。false なら指。</summary>
+    /// <remarks>
+    /// Windows はタッチとペンを別の入力として扱う。ペンとして注入すれば
+    /// 筆圧や傾きを見るアプリが本来の動きをし、手のひらが当たっても
+    /// 線にならない。既定は false（古い端末は種別を送ってこない）。
+    /// </remarks>
+    public bool IsPen { get; init; }
 }
 
 /// <summary>タッチポイントのライフサイクルフェーズ。</summary>

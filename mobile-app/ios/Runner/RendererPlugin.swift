@@ -178,11 +178,15 @@ class RendererSession: NSObject {
     func pushFrame(data: Data) {
         let start = Date()
 
-        // SPS / PPS を抽出・フォーマット記述を準備する
-        if !isFormatReady {
-            parseParameterSets(from: data)
-            if !isFormatReady { return }
-        }
+        // SPS / PPS は毎回見る。
+        //
+        // 以前は isFormatReady が立つまでしか読んでいなかった。そのため
+        // 端末を回して PC が仮想ディスプレイを作り直しても、新しい
+        // SPS/PPS を無視して古い形式のまま復号し続け、画面が縦のまま
+        // 戻らなくなっていた。
+        parseParameterSets(from: data)
+
+        if !isFormatReady { return }
 
         guard let formatDesc = formatDescription else { return }
 
@@ -235,11 +239,32 @@ class RendererSession: NSObject {
             }
         }
 
-        if foundSps, foundPps,
-           let sps = spsData, let pps = ppsData {
-            createFormatDescription(sps: sps, pps: pps)
+        guard foundSps, foundPps,
+              let sps = spsData, let pps = ppsData else { return }
+
+        // 中身が変わっていなければ何もしない。毎フレーム作り直すと重い。
+        if isFormatReady, sps == lastSps, pps == lastPps { return }
+
+        lastSps = sps
+        lastPps = pps
+
+        // 解像度が変わった。前のセッションは古い形式のままなので捨てる。
+        // 残したまま新しい絵を流し込むと、復号できないか、前の寸法の
+        // ままの絵が出てくる。
+        if let session = decompressionSession {
+            VTDecompressionSessionWaitForAsynchronousFrames(session)
+            VTDecompressionSessionInvalidate(session)
+            decompressionSession = nil
         }
+
+        isFormatReady = false
+
+        createFormatDescription(sps: sps, pps: pps)
     }
+
+    /// 直近に採用したパラメータセット。作り直しの要否を見るために持つ。
+    private var lastSps: Data?
+    private var lastPps: Data?
 
     /// Annex-B の中身を NAL 単位に切り分ける。
     ///

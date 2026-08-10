@@ -31,7 +31,14 @@ public static class TouchEventCodec
     public const int HeaderSize = 10;
 
     /// <summary>タッチポイント 1 点あたりのバイト数。</summary>
-    public const int PointSize = 17;
+    /// <remarks>
+    /// ペンかどうかを表す 1 バイトを足したため 18 になった。
+    /// 古い端末は 17 バイトで送ってくるので、長さを見て両方読む。
+    /// </remarks>
+    public const int PointSize = 18;
+
+    /// <summary>ペンの区別が無かった頃の 1 点あたりのバイト数。</summary>
+    public const int LegacyPointSize = 17;
 
     /// <summary>
     /// 受信したバイト列をタッチイベントとして読み取る。
@@ -46,10 +53,20 @@ public static class TouchEventCodec
         byte orientationCode = payload[8];
         byte pointCount      = payload[9];
 
-        // 宣言された点数と実際のバイト数が食い違うパケットは捨てる
-        int expectedLength = HeaderSize + pointCount * PointSize;
-        if (payload.Length < expectedLength)
-            return null;
+        // 宣言された点数と実際のバイト数が食い違うパケットは捨てる。
+        //
+        // 相手が古ければ 1 点 17 バイトで送ってくる。長さから判断して
+        // どちらでも読めるようにする。揃わないうちは繋がらない、では
+        // 更新の順番に気を遣わせることになる。
+        int pointSize = PointSize;
+
+        if (payload.Length < HeaderSize + pointCount * PointSize)
+        {
+            if (payload.Length < HeaderSize + pointCount * LegacyPointSize)
+                return null;
+
+            pointSize = LegacyPointSize;
+        }
 
         if (!TryMapOrientation(orientationCode, out var orientation))
             return null;
@@ -58,7 +75,7 @@ public static class TouchEventCodec
 
         for (int i = 0; i < pointCount; i++)
         {
-            var slice = payload.Slice(HeaderSize + i * PointSize, PointSize);
+            var slice = payload.Slice(HeaderSize + i * pointSize, pointSize);
 
             int   id       = BinaryPrimitives.ReadInt32LittleEndian(slice[..4]);
             float x        = BinaryPrimitives.ReadSingleLittleEndian(slice.Slice(4, 4));
@@ -69,6 +86,9 @@ public static class TouchEventCodec
             if (!TryMapPhase(phaseCode, out var phase))
                 return null;
 
+            // 古い並びにはこの 1 バイトが無い。その場合は指として扱う。
+            bool isPen = pointSize > LegacyPointSize && slice[17] != 0;
+
             points.Add(new TouchPoint
             {
                 Id       = id,
@@ -76,6 +96,7 @@ public static class TouchEventCodec
                 Y        = SanitizeNormalized(y),
                 Pressure = SanitizeNormalized(pressure),
                 Phase    = phase,
+                IsPen    = isPen,
             });
         }
 
@@ -117,6 +138,7 @@ public static class TouchEventCodec
             BinaryPrimitives.WriteSingleLittleEndian(slice.Slice(8, 4),  (float)point.Y);
             BinaryPrimitives.WriteSingleLittleEndian(slice.Slice(12, 4), (float)point.Pressure);
             slice[16] = (byte)point.Phase;
+            slice[17] = point.IsPen ? (byte)1 : (byte)0;
         }
 
         return buffer;

@@ -2083,6 +2083,21 @@ public sealed class ConnectionServer
             // 正規化座標はディスプレイ座標に直接対応する。
             // ここで端末の向きに応じた回転を重ねると二重に回ってしまう
             // （レンダラー側が既に端末の向きで描画しているため）。
+            // ペンで触られているならペンとして注入する。
+            //
+            // Windows はタッチとペンを別の入力として扱う。ペンとして
+            // 送れば、筆圧や傾きを見るアプリが本来の動きをするし、
+            // 手のひらが当たっても線にならない。指のまま送っていると
+            // Apple Pencil で描いても「太い指」でしかなかった。
+            //
+            // 種別が変わるときは、掴んだままの接触を解放してから
+            // 切り替わる（Mode の setter が面倒を見る）。
+            var wanted = touchEvent.Points.Any(p => p.IsPen)
+                ? PointerInjectionMode.Pen
+                : PointerInjectionMode.Touch;
+
+            if (injector.Mode != wanted) injector.Mode = wanted;
+
             injector.InjectTouch(
                 touchEvent.Points,
                 new DisplayTransform(displayResolution, Orientation.Portrait));

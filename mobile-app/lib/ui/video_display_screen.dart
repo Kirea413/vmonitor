@@ -171,6 +171,14 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
   void didChangeMetrics() {
     super.didChangeMetrics();
 
+    // 回転の最中に触れていた指を、PC 側に残さない。
+    //
+    // 回転すると Flutter はポインターを打ち切るが、その通知が
+    // 必ず届くとは限らない。届かないと PC には押されたままの接触が
+    // 残り、以後こちらが何を送っても効かなくなる。
+    // 「回すとタッチが固まる」の正体はこれ。
+    _touchProxy.releaseAllPointers();
+
     // 回転の途中は寸法が何度も変わる。落ち着いてから 1 回だけ送る。
     _metricsDebounce?.cancel();
     _metricsDebounce = Timer(const Duration(milliseconds: 400), _sendHello);
@@ -277,7 +285,24 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
   Future<void> _sendHello({bool force = false}) async {
     try {
       final view = PlatformDispatcher.instance.views.first;
-      final size = view.physicalSize;
+
+      // 実際に映せる大きさを伝える。画面全体ではない。
+      //
+      // 余白を取ると映せる範囲の縦横比が変わる。画面全体の寸法を
+      // 伝えていると、PC はその比で仮想ディスプレイを作るので、
+      // 縮めた枠に収める段で帯が出るか引き伸ばされる。
+      //
+      // 余白は論理ピクセル、physicalSize は物理ピクセルなので
+      // 倍率を掛けて揃える。
+      final insets = displayPreferences.insets;
+      final scale  = view.devicePixelRatio;
+
+      final size = Size(
+        (view.physicalSize.width  - (insets.left + insets.right) * scale)
+            .clamp(1.0, view.physicalSize.width),
+        (view.physicalSize.height - (insets.top + insets.bottom) * scale)
+            .clamp(1.0, view.physicalSize.height),
+      );
 
       // 同じ大きさを繰り返し伝えない。
       // PC 側は知らせを受けるたびに仮想ディスプレイを作り直すので、
@@ -378,7 +403,15 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
                   child: const Text('リセット'),
                 ),
                 FilledButton(
-                  onPressed: () => setState(() => _adjustingInsets = false),
+                  onPressed: () {
+                    setState(() => _adjustingInsets = false);
+
+                    // 余白を取ると映せる範囲の縦横比が変わる。
+                    // PC 側の仮想ディスプレイは元の比のままなので、
+                    // 知らせないと帯が出るか、引き伸ばされて気持ち悪くなる。
+                    // 確定したこの時点で作り直してもらう。
+                    _sendHello();
+                  },
                   child: const Text('完了'),
                 ),
               ],

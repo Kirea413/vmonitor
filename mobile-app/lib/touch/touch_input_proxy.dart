@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/widgets.dart';
 
 import '../transport/transport.dart';
@@ -53,12 +54,20 @@ class TouchPoint {
 
   final TouchPhase phase;
 
+  /// ペン（スタイラス）か。false なら指。
+  ///
+  /// Windows ではタッチとペンが別の入力として扱われる。ペンとして
+  /// 送れば筆圧や傾きを見るアプリが本来の動きをするし、
+  /// 手のひらが当たっても線にならない。
+  final bool isPen;
+
   const TouchPoint({
     required this.id,
     required this.x,
     required this.y,
     required this.pressure,
     required this.phase,
+    this.isPen = false,
   });
 }
 
@@ -171,26 +180,29 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   /// [PointerDownEvent] を処理してポインターを登録し、TouchEvent を発行する。
   void onPointerDown(PointerDownEvent event) {
     _activePointers[event.pointer] = event.localPosition;
-    _emitEvent(event.pointer, event.localPosition, event.pressure, TouchPhase.began);
+    _emitEvent(event.pointer, event.localPosition, event.pressure,
+        TouchPhase.began, _isPen(event.kind));
   }
 
   /// [PointerMoveEvent] を処理してポインター位置を更新し、TouchEvent を発行する。
   void onPointerMove(PointerMoveEvent event) {
     _activePointers[event.pointer] = event.localPosition;
-    _emitEvent(event.pointer, event.localPosition, event.pressure, TouchPhase.moved);
+    _emitEvent(event.pointer, event.localPosition, event.pressure,
+        TouchPhase.moved, _isPen(event.kind));
   }
 
   /// [PointerUpEvent] を処理してポインターを削除し、TouchEvent を発行する。
   void onPointerUp(PointerUpEvent event) {
     _activePointers.remove(event.pointer);
-    _emitEvent(event.pointer, event.localPosition, event.pressure, TouchPhase.ended);
+    _emitEvent(event.pointer, event.localPosition, event.pressure,
+        TouchPhase.ended, _isPen(event.kind));
   }
 
   /// [PointerCancelEvent] を処理してポインターをキャンセルし、TouchEvent を発行する。
   void onPointerCancel(PointerCancelEvent event) {
     _activePointers.remove(event.pointer);
-    _emitEvent(
-        event.pointer, event.localPosition, event.pressure, TouchPhase.cancelled);
+    _emitEvent(event.pointer, event.localPosition, event.pressure,
+        TouchPhase.cancelled, _isPen(event.kind));
   }
 
   /// いま触れていることになっている指を、すべて離したことにする。
@@ -199,7 +211,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   /// PC 側は指が置かれたままだと思い続け、押しっぱなしの状態が残る。
   void releaseAllPointers() {
     for (final entry in _activePointers.entries.toList()) {
-      _emitEvent(entry.key, entry.value, 0.0, TouchPhase.cancelled);
+      _emitEvent(entry.key, entry.value, 0.0, TouchPhase.cancelled, false);
     }
 
     _activePointers.clear();
@@ -211,11 +223,21 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   /// [TouchEvent] を生成してストリームに流し、トランスポートで送信する。
   ///
   /// Requirements 6.4: 全タッチポイントを同一メッセージで同時に送信する。
+  /// Flutter のポインター種別を「ペンかどうか」に落とす。
+  ///
+  /// Apple Pencil や Android のスタイラスは stylus として届く。
+  /// 反転させて消しゴム側を使うと invertedStylus になるが、
+  /// Windows 側でそこまで扱っていないので、どちらもペンとする。
+  static bool _isPen(PointerDeviceKind kind) =>
+      kind == PointerDeviceKind.stylus ||
+      kind == PointerDeviceKind.invertedStylus;
+
   void _emitEvent(
     int pointer,
     Offset localPosition,
     double pressure,
     TouchPhase phase,
+    bool isPen,
   ) {
     final widgetSize = _widgetSize;
     final points = <TouchPoint>[];
@@ -233,6 +255,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
       x: normX,
       y: normY,
       pressure: pressure.clamp(0.0, 1.0),
+      isPen: isPen,
       phase: phase,
     ));
 
@@ -289,9 +312,13 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   /// ```
   static Uint8List _serializeEvent(TouchEvent event) {
     // 1 イベントあたりのヘッダー: 8(timestamp) + 1(orientation) + 1(count) = 10 バイト
-    // 1 ポイントあたり: 4(id) + 4(x) + 4(y) + 4(pressure) + 1(phase) = 17 バイト
+    // 1 ポイントあたり:
+    //   4(id) + 4(x) + 4(y) + 4(pressure) + 1(phase) + 1(kind) = 18 バイト
+    //
+    // kind を足したぶん 17 から増えている。PC 側は長さを見て
+    // 古い 17 バイトの並びも読めるようにしてある。
     const headerSize = 10;
-    const pointSize = 17;
+    const pointSize = 18;
 
     final buffer = ByteData(headerSize + event.points.length * pointSize);
     int offset = 0;
@@ -320,6 +347,8 @@ class FlutterTouchInputProxy implements TouchInputProxy {
       buffer.setFloat32(offset, point.pressure, Endian.little);
       offset += 4;
       buffer.setUint8(offset, point.phase.index);
+      offset += 1;
+      buffer.setUint8(offset, point.isPen ? 1 : 0);
       offset += 1;
     }
 
