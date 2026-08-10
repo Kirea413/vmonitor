@@ -218,37 +218,20 @@ class RendererSession: NSObject {
     /// CMVideoFormatDescription を作成する。
     private func parseParameterSets(from data: Data) {
         let bytes = [UInt8](data)
-        var i = 0
+
         var foundSps = false
         var foundPps = false
 
-        while i + 4 < bytes.count {
-            // スタートコード 0x00000001 を探す
-            if bytes[i] == 0 && bytes[i+1] == 0 && bytes[i+2] == 0 && bytes[i+3] == 1 {
-                let nalStart = i + 4
-                if nalStart >= bytes.count { break }
-
-                let nalType = bytes[nalStart] & 0x1F
-                // 次のスタートコードまでの長さを計算する
-                var end = nalStart + 1
-                while end + 3 < bytes.count {
-                    if bytes[end] == 0 && bytes[end+1] == 0 && bytes[end+2] == 0 && bytes[end+3] == 1 { break }
-                    end += 1
-                }
-
-                let nalBytes = Array(bytes[nalStart..<end])
-
-                if nalType == 7 { // SPS
-                    spsData = Data(nalBytes)
-                    foundSps = true
-                } else if nalType == 8 { // PPS
-                    ppsData = Data(nalBytes)
-                    foundPps = true
-                }
-
-                i = end
-            } else {
-                i += 1
+        for range in Self.nalRanges(bytes) {
+            switch bytes[range.lowerBound] & 0x1F {
+            case 7:   // SPS
+                spsData = Data(bytes[range])
+                foundSps = true
+            case 8:   // PPS
+                ppsData = Data(bytes[range])
+                foundPps = true
+            default:
+                break
             }
         }
 
@@ -256,6 +239,60 @@ class RendererSession: NSObject {
            let sps = spsData, let pps = ppsData {
             createFormatDescription(sps: sps, pps: pps)
         }
+    }
+
+    /// Annex-B の中身を NAL 単位に切り分ける。
+    ///
+    /// 以前はここが 2 か所（パラメータセットの取り出しと AVCC への変換）に
+    /// 別々に書かれていて、どちらにも同じ 2 つの誤りがあった。
+    ///
+    /// 1. 末尾が 3 バイト切れていた
+    ///
+    ///    `while end + 3 < bytes.count` で次のスタートコードを探すため、
+    ///    見つからなかった場合の end は `bytes.count - 3` で止まる。
+    ///    後ろに `if end == bytes.count { end = bytes.count }` が
+    ///    書いてあったが、この条件は決して成立しない。
+    ///    結果、パケット末尾の NAL は必ず 3 バイト短くなっていた。
+    ///
+    /// 2. 3 バイトのスタートコードを見ていなかった
+    ///
+    ///    Annex-B のスタートコードは 00 00 01 と 00 00 00 01 の
+    ///    どちらもありうる。前者を読み飛ばすと NAL の切れ目がずれ、
+    ///    長さが全部狂う。
+    ///
+    /// どちらもデコーダは何も言わずに黙り、画面が真っ暗になるだけだった。
+    private static func nalRanges(_ bytes: [UInt8]) -> [Range<Int>] {
+        // (NAL 本体の開始位置, スタートコード自体の開始位置)
+        var found: [(body: Int, code: Int)] = []
+
+        var i = 0
+        while i + 2 < bytes.count {
+            guard bytes[i] == 0, bytes[i + 1] == 0 else {
+                i += 1
+                continue
+            }
+
+            if bytes[i + 2] == 1 {
+                found.append((body: i + 3, code: i))
+                i += 3
+            } else if i + 3 < bytes.count, bytes[i + 2] == 0, bytes[i + 3] == 1 {
+                found.append((body: i + 4, code: i))
+                i += 4
+            } else {
+                i += 1
+            }
+        }
+
+        var ranges: [Range<Int>] = []
+
+        for (index, item) in found.enumerated() {
+            // 最後の NAL はデータの終わりまで。ここを縮めない。
+            let end = index + 1 < found.count ? found[index + 1].code : bytes.count
+
+            if item.body < end { ranges.append(item.body..<end) }
+        }
+
+        return ranges
     }
 
     private func createFormatDescription(sps: Data, pps: Data) {
@@ -368,32 +405,18 @@ class RendererSession: NSObject {
     }
 
     private func convertAnnexBToAVCC(data: Data) -> Data {
-        var result = Data()
         let bytes = [UInt8](data)
-        var i = 0
 
-        while i + 4 < bytes.count {
-            // スタートコード 0x00000001
-            if bytes[i] == 0 && bytes[i+1] == 0 && bytes[i+2] == 0 && bytes[i+3] == 1 {
-                let nalStart = i + 4
-                // 次のスタートコードを探す
-                var end = nalStart
-                while end + 3 < bytes.count {
-                    if bytes[end] == 0 && bytes[end+1] == 0 && bytes[end+2] == 0 && bytes[end+3] == 1 { break }
-                    end += 1
-                }
-                if end == bytes.count { end = bytes.count }
+        var result = Data()
 
-                let nalLength = end - nalStart
-                // AVCC: 4バイトの長さ (big-endian) + NAL データ
-                var lengthBE = UInt32(nalLength).bigEndian
-                result.append(contentsOf: withUnsafeBytes(of: &lengthBE) { Array($0) })
-                result.append(contentsOf: bytes[nalStart..<end])
-                i = end
-            } else {
-                i += 1
-            }
+        for range in Self.nalRanges(bytes) {
+            // AVCC: 4 バイトの長さ (big-endian) + NAL 本体
+            var lengthBE = UInt32(range.count).bigEndian
+
+            withUnsafeBytes(of: &lengthBE) { result.append(contentsOf: $0) }
+            result.append(contentsOf: bytes[range])
         }
+
         return result
     }
 
