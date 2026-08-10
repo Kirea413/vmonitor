@@ -46,6 +46,8 @@ Windows から見て本当にディスプレイが 1 枚増えます。
 
 1. **PC** … `vmonitor-*-setup.exe` を**管理者として実行**
 2. **Android** … `vmonitor-*.apk` を端末で開く
+3. **iPhone / iPad** … `vmonitor-*-unsigned.ipa` は無署名です。
+   自分の証明書を付ける必要があります → [手順](docs/ios-sideload.md)（**未検証**）
 
 > **⚠ ドライバの証明書について**
 >
