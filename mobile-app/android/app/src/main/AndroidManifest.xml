@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Wi-Fi 接続に要る。7980 番での待ち受けと mDNS での PC 探索、
+         どちらもこれが無いと SocketException になる。
+
+         Flutter のひな形は debug と profile のマニフェストにしか
+         これを書かない（ホットリロード用）。開発中はそちらが効くので
+         気付かないが、release ビルドでは Wi-Fi 接続が丸ごと動かない。
+         USB 直結だけが生き残るので、原因が分かりにくい。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- USB アクセサリー (AOA) で PC と直結する。
          対応していない端末でも Wi-Fi 接続は使えるので required は false にする。 -->
     <uses-feature

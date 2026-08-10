@@ -1,6 +1,9 @@
 name: vmonitor
 description: vmonitor smartphone app - use your phone as a virtual monitor for Windows PC.
-version: 0.1.0
+# PC 側 (VMonitor.UI) と揃える。食い違うと、不具合報告を受けたときに
+# どちらの組み合わせなのか分からなくなる。
+# '+' の後ろは versionCode。配布するたびに 1 つ増やす。
+version: 1.0.0-beta+1
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
