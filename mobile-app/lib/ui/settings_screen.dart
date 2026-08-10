@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -168,6 +168,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             minimumSize: const Size.fromHeight(48),
           ),
         ),
+        const SizedBox(height: 16),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('映している間は画面を消さない',
+              style: TextStyle(fontSize: 14)),
+          subtitle: const Text(
+            '2 枚目のモニターとして使うときに、触っていなくても消えないようにします。'
+            '外すと端末の設定どおりに消灯します（電池は長持ちします）。',
+            style: TextStyle(fontSize: 11),
+          ),
+          value: displayPreferences.keepScreenAwake,
+          onChanged: (value) {
+            displayPreferences.setKeepScreenAwake(value);
+            setState(() {});
+          },
+        ),
+
         const SizedBox(height: 16),
         Text('切断の操作', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 4),

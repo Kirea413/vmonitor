@@ -15,6 +15,112 @@ namespace VMonitorControl
     static volatile LONG g_running = 0;
 
     // ─────────────────────────────────────────────────────────────────────
+    // 持ち主の死活監視
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // アプリが強制終了されると、こちらには何も伝わらないままモニターが
+    // 残る。持ち主のプロセスを開いて終了を待ち、死んだら自分で外す。
+    //
+    static HANDLE g_ownerProcess = nullptr;   // 見張っている相手
+    static HANDLE g_ownerThread  = nullptr;   // 待ち受けているスレッド
+    static HANDLE g_ownerCancel  = nullptr;   // 見張りをやめるための合図
+
+    static void DisconnectMonitor();          // 前方宣言
+
+    /// <summary>持ち主の終了を待つ。死んだらモニターを外す。</summary>
+    static DWORD WINAPI OwnerWatchThread(LPVOID)
+    {
+        HANDLE waits[2] = { g_ownerProcess, g_ownerCancel };
+
+        DWORD which = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+
+        // 合図で終わったなら、正常に切断済み。何もしない。
+        if (which != WAIT_OBJECT_0) return 0;
+
+        VMTRACE("Control: owner process exited; disconnecting monitor");
+
+        DisconnectMonitor();
+        return 0;
+    }
+
+    /// <summary>見張りをやめる。</summary>
+    static void StopWatchingOwner()
+    {
+        if (g_ownerCancel) SetEvent(g_ownerCancel);
+
+        if (g_ownerThread)
+        {
+            WaitForSingleObject(g_ownerThread, 2000);
+            CloseHandle(g_ownerThread);
+            g_ownerThread = nullptr;
+        }
+
+        if (g_ownerProcess) { CloseHandle(g_ownerProcess); g_ownerProcess = nullptr; }
+        if (g_ownerCancel)  { CloseHandle(g_ownerCancel);  g_ownerCancel  = nullptr; }
+    }
+
+    /// <summary>指定したプロセスの終了を見張り始める。</summary>
+    static void StartWatchingOwner(unsigned int processId)
+    {
+        StopWatchingOwner();
+
+        if (processId == 0) return;   // 見張らない
+
+        // 終了を待つだけなので、必要な権限は最小限にする
+        g_ownerProcess = OpenProcess(SYNCHRONIZE, FALSE, processId);
+
+        if (g_ownerProcess == nullptr)
+        {
+            VMTRACE("Control: could not open owner process; not watching");
+            return;
+        }
+
+        g_ownerCancel = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+
+        if (g_ownerCancel == nullptr)
+        {
+            CloseHandle(g_ownerProcess);
+            g_ownerProcess = nullptr;
+            return;
+        }
+
+        g_ownerThread = CreateThread(nullptr, 0, OwnerWatchThread, nullptr, 0, nullptr);
+
+        if (g_ownerThread == nullptr)
+        {
+            StopWatchingOwner();
+            return;
+        }
+
+        VMTRACE("Control: watching owner process");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // モニターを外す
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // 利用者が切ったときと、持ち主が死んだときの両方から呼ばれる。
+    // どちらも後始末の中身は同じなので、一箇所にまとめる。
+    //
+    static void DisconnectMonitor()
+    {
+        if (g_device == nullptr) return;
+
+        auto* Ctx = WdfObjectGet_IndirectDeviceContextWrapper(g_device);
+        if (Ctx == nullptr || Ctx->MonitorObject == nullptr) return;
+
+        NTSTATUS status = IddCxMonitorDeparture(Ctx->MonitorObject);
+        VMTRACE_STATUS("Control: MonitorDeparture", status);
+
+        // 失敗しても状態は未接続に戻す。
+        // 掴んだままにすると次の接続要求が「既に接続中」と誤判定され、
+        // 二度とモニターを出せなくなる。
+        Ctx->MonitorObject = nullptr;
+        Ctx->Width         = 0;
+        Ctx->Height        = 0;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // コマンドの処理
     // ─────────────────────────────────────────────────────────────────────
 
@@ -77,6 +183,10 @@ namespace VMonitorControl
                 Ctx->Width         = cmd.Width;
                 Ctx->Height        = cmd.Height;
                 res.Succeeded      = 1;
+
+                // 出せたら、持ち主が生きているかを見張り始める。
+                // 強制終了されてもモニターが残らないようにするため。
+                StartWatchingOwner(cmd.OwnerProcessId);
             }
 
             break;
@@ -86,22 +196,11 @@ namespace VMonitorControl
         {
             VMTRACE("Control: DISCONNECT");
 
-            if (Ctx->MonitorObject == nullptr)
-            {
-                res.Succeeded = 1;   // 既に未接続
-                break;
-            }
+            // 自分から切るので、持ち主の見張りも終える
+            StopWatchingOwner();
 
-            NTSTATUS status = IddCxMonitorDeparture(Ctx->MonitorObject);
-            VMTRACE_STATUS("Control: MonitorDeparture", status);
-
-            // 失敗しても状態は未接続に戻す。
-            // 掴んだままにすると次の接続要求が「既に接続中」と誤判定され、
-            // 二度とモニターを出せなくなる。
-            Ctx->MonitorObject = nullptr;
-            Ctx->Width         = 0;
-            Ctx->Height        = 0;
-            res.Succeeded      = 1;
+            DisconnectMonitor();
+            res.Succeeded = 1;
 
             break;
         }
@@ -256,6 +355,10 @@ namespace VMonitorControl
     {
         if (InterlockedCompareExchange(&g_running, 0, 1) != 1)
             return;   // 起動していない
+
+        // 見張りのスレッドを先に畳む。残すと、後片付けの最中に
+        // モニターを外しにきて衝突する。
+        StopWatchingOwner();
 
         if (g_stopEvent) SetEvent(g_stopEvent);
 

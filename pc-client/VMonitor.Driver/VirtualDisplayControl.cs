@@ -152,6 +152,10 @@ public sealed class VirtualDisplayControl : IDisposable
                 Width       = (uint)Math.Max(0, width),
                 Height      = (uint)Math.Max(0, height),
                 RefreshRate = (uint)Math.Max(0, refreshRate),
+
+                // 強制終了されたときにモニターを外してもらうため、
+                // 自分の ID を渡しておく。
+                OwnerProcessId = (uint)Environment.ProcessId,
             };
 
             pipe.Write(ToBytes(command));
@@ -232,6 +236,16 @@ public sealed class VirtualDisplayControl : IDisposable
         public uint Width;
         public uint Height;
         public uint RefreshRate;
+
+        /// <summary>
+        /// この接続を頼んでいるプロセスの ID。
+        /// </summary>
+        /// <remarks>
+        /// ドライバはこれを見て持ち主の終了を待つ。強制終了された場合は
+        /// こちらのコードが一切動かないため、後始末を頼めない。
+        /// 見張ってもらわないとモニターが出たまま残る。
+        /// </remarks>
+        public uint OwnerProcessId;
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]

@@ -34,6 +34,22 @@ namespace VMonitorControl
         unsigned int Width;
         unsigned int Height;
         unsigned int RefreshRate;
+
+        //
+        // 接続を頼んできたプロセスの ID。
+        //
+        // このパイプは 1 コマンドごとに繋いで切るため、繋ぎっぱなしの
+        // 接続が無い。つまりアプリが落ちても、こちらには何も伝わらない。
+        // 強制終了された場合はアプリ側のコードが一切動かないので、
+        // 後始末を頼むこともできない。
+        //
+        // 結果として、モニターが出たまま残る。ウィンドウがそちらへ飛び、
+        // マウスが画面外へ抜けるようになる。
+        //
+        // そこで持ち主の ID を受け取り、こちらでその終了を待つ。
+        // 0 なら見張らない（古いアプリとの組み合わせ）。
+        //
+        unsigned int OwnerProcessId;
     };
 
     struct Response

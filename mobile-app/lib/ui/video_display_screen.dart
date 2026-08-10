@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 
@@ -14,6 +14,7 @@ import '../touch/touch_input_proxy.dart' as touch;
 import '../transport/transport.dart';
 import '../transport/wifi_transport.dart';
 import 'display_preferences.dart';
+import 'screen_awake.dart';
 import 'draggable_settings_button.dart';
 import 'settings_screen.dart';
 
@@ -82,6 +83,10 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
     // 設定画面で余白や表示の切り替えを変えたら、その場で反映する
     displayPreferences.addListener(_onPreferencesChanged);
 
+    // 映している間は画面を消させない。
+    // 2 枚目のモニターとして使っているのに消えては成立しない。
+    ScreenAwake.set(displayPreferences.keepScreenAwake);
+
     // タッチイベントを PC へ送れるようトランスポートを繋ぐ
     _touchProxy.attach(widget.transport);
 
@@ -90,6 +95,9 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
 
   @override
   void dispose() {
+    // 映像を出していないのに点けたままにしない
+    ScreenAwake.set(false);
+
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     WidgetsBinding.instance.removeObserver(this);
@@ -106,6 +114,9 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
   }
 
   void _onPreferencesChanged() {
+    // 設定を変えたその場で効かせる
+    ScreenAwake.set(displayPreferences.keepScreenAwake);
+
     if (mounted) setState(() {});
   }
 

@@ -65,9 +65,14 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
             execute: _ => _ = ReconnectAsync(),
             canExecute: _ => !IsBusy);
 
+        // 実際に繋いでいるのは接続サーバー。そちらの状態を見る。
+        //
+        // 以前は _activeSession を条件にしていたが、これは使わなくなった
+        // 旧経路でしか設定されない。常に null なので、切断ボタンが
+        // 永久に押せなかった。
         DisconnectCommand = new RelayCommand(
-            execute: _ => _ = DisconnectAsync(),
-            canExecute: _ => !IsBusy && _activeSession is not null);
+            execute:    _ => _ = DisconnectAsync(),
+            canExecute: _ => !IsBusy && IsAnythingConnected);
 
         DismissNotificationCommand = new RelayCommand(
             execute: _ => DismissNotification());
@@ -87,7 +92,32 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     public UsbConnectionViewModel? Usb
     {
         get => _usb;
-        set { _usb = value; OnPropertyChanged(); }
+        set
+        {
+            _usb = value;
+            OnPropertyChanged();
+            WatchConnectionState(value);
+        }
+    }
+
+    /// <summary>
+    /// 経路側の状態が変わったら、こちらのボタンも見直す。
+    /// </summary>
+    /// <remarks>
+    /// 繋がったか切れたかを知らないと、切断ボタンの有効・無効が
+    /// 更新されず、押せるはずのときに押せないままになる。
+    /// </remarks>
+    private void WatchConnectionState(INotifyPropertyChanged? source)
+    {
+        if (source is null) return;
+
+        source.PropertyChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(IsAnythingConnected));
+
+            ((RelayCommand)DisconnectCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ConnectCommand).RaiseCanExecuteChanged();
+        };
     }
 
     private UsbConnectionViewModel? _usb;
@@ -98,7 +128,12 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     public DeviceConnectionViewModel? Device
     {
         get => _device;
-        set { _device = value; OnPropertyChanged(); }
+        set
+        {
+            _device = value;
+            OnPropertyChanged();
+            WatchConnectionState(value);
+        }
     }
 
     private DeviceConnectionViewModel? _device;
@@ -364,8 +399,25 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>どちらかの経路で繋がっているか。</summary>
+    public bool IsAnythingConnected =>
+        (Usb?.IsConnected ?? false) || (Device?.IsConnected ?? false);
+
     private async Task DisconnectAsync()
     {
+        // 繋いだのは接続サーバーなので、切るのもそちらに頼む。
+        if (Usb?.IsConnected == true)
+        {
+            Usb.DisconnectCommand.Execute(null);
+            return;
+        }
+
+        if (Device?.IsConnected == true)
+        {
+            Device.DisconnectCommand.Execute(null);
+            return;
+        }
+
         if (_activeSession is null)
             return;
 

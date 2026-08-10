@@ -69,6 +69,7 @@ class DisplayPreferences extends ChangeNotifier {
   static const String _keyShowButton  = 'display.showSettingsButton';
   static const String _keyGesture     = 'display.disconnectGesture';
   static const String _keyConfirm     = 'display.confirmBeforeDisconnect';
+  static const String _keyKeepAwake   = 'display.keepScreenAwake';
 
   /// 余白の上限。これ以上狭めると映像が小さくなりすぎる。
   static const double maxInset = 80;
@@ -83,6 +84,7 @@ class DisplayPreferences extends ChangeNotifier {
 
   DisconnectGesture _disconnectGesture = DisconnectGesture.threeFingerSwipeDown;
   bool _confirmBeforeDisconnect = true;
+  bool _keepScreenAwake = true;
 
   /// 映像とタッチ領域の余白。
   ///
@@ -131,6 +133,20 @@ class DisplayPreferences extends ChangeNotifier {
     await _save();
   }
 
+  /// 映像を出している間、画面を消させないか。
+  ///
+  /// 既定は消させない。2 枚目のモニターとして使っている最中に
+  /// 画面が消えると、モニターとして成立しないため。
+  ///
+  /// ただし、映しっぱなしで放置する使い方では電池を食う。切れるようにしてある。
+  bool get keepScreenAwake => _keepScreenAwake;
+
+  Future<void> setKeepScreenAwake(bool value) async {
+    _keepScreenAwake = value;
+    notifyListeners();
+    await _save();
+  }
+
   /// 保存済みの設定を読み込む。読めなければ既定値のまま。
   Future<void> load() async {
     try {
@@ -153,6 +169,7 @@ class DisplayPreferences extends ChangeNotifier {
       }
 
       _confirmBeforeDisconnect = prefs.getBool(_keyConfirm) ?? true;
+      _keepScreenAwake         = prefs.getBool(_keyKeepAwake) ?? true;
 
       
 
@@ -201,6 +218,7 @@ class DisplayPreferences extends ChangeNotifier {
       await prefs.setBool(_keyShowButton,    _showSettingsButton);
       await prefs.setInt(_keyGesture,        _disconnectGesture.index);
       await prefs.setBool(_keyConfirm,       _confirmBeforeDisconnect);
+      await prefs.setBool(_keyKeepAwake,     _keepScreenAwake);
     } catch (_) {
       // 保存できなくても、この起動の間は設定が効く
     }

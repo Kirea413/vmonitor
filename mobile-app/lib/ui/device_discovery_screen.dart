@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -123,6 +124,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
         _autoConnectUsbIfAttached();
         // Wi-Fi に後から繋いだ場合、アドレスはあとから生える
         _refreshLocalAddresses();
+        // PC 側の vmonitor が生きているかを見張る
+        _probePc();
       },
     );
 
@@ -225,6 +228,52 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     _connect(device, connected: listener);
   }
 
+  /// PC 側の vmonitor が応答しているか。
+  ///
+  /// ケーブルが挿さっていることと、相手で vmonitor が動いていることは別。
+  /// **PC 側のアプリを閉じても、端末はアクセサリーモードのまま残る。**
+  /// そのため「アクセサリーが見えている」だけを根拠にすると、
+  /// 相手が居ないのに「USB で接続」が押せてしまう。
+  bool _pcAlive = false;
+
+  /// 最後に PC から何か届いた時刻。
+  DateTime? _lastPcMessage;
+
+  /// これだけ音沙汰が無ければ、PC 側は動いていないとみなす。
+  static const Duration _pcSilenceLimit = Duration(seconds: 8);
+
+  /// PC が生きているか確かめる。
+  ///
+  /// 開いている通信路へ問いかけ、返事があるかを見る。
+  Future<void> _probePc() async {
+    final link = _usbLink;
+
+    if (link == null) {
+      if (_pcAlive && mounted) setState(() => _pcAlive = false);
+      return;
+    }
+
+    try {
+      await link.send(
+        Uint8List.fromList(utf8.encode(jsonEncode({'type': 'ping', 't': 0}))),
+        ChannelId.control,
+      );
+    } catch (_) {
+      // 送れない＝相手が居ない
+      if (_pcAlive && mounted) setState(() => _pcAlive = false);
+      return;
+    }
+
+    final last = _lastPcMessage;
+    final alive = last != null &&
+        DateTime.now().difference(last) < _pcSilenceLimit;
+
+    if (alive == _pcAlive) return;
+    if (!mounted) return;
+
+    setState(() => _pcAlive = alive);
+  }
+
   /// 待ち受けを畳んで、また張り直す。
   void _restartListeningSoon() {
     Timer(const Duration(milliseconds: 300), () {
@@ -313,7 +362,32 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       onDone: _onUsbLinkClosed,
     );
 
+    // 繋がった時点で名乗る。
+    //
+    // これまで名乗りは映像画面でしか送っておらず、PC の一覧には
+    // 接続するまで「Android 端末」としか出なかった。選ぶ側からすれば、
+    // どれが自分の端末なのか分からない。
+    unawaited(_announceSelf(link));
+
     setState(() {});
+  }
+
+  /// この端末の呼び名を相手に伝える。
+  Future<void> _announceSelf(Transport link) async {
+    try {
+      final name = await AoaTransport.deviceName();
+      if (name == null || name.isEmpty) return;
+
+      await link.send(
+        Uint8List.fromList(utf8.encode(jsonEncode({
+          'type': 'hello',
+          'name': name,
+        }))),
+        ChannelId.control,
+      );
+    } catch (_) {
+      // 名乗れなくても接続そのものには関係ない
+    }
   }
 
   void _onUsbLinkClosed() {
@@ -344,6 +418,10 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
   /// PC から届いた制御メッセージを処理する。
   void _onUsbControlMessage(Uint8List data) {
+    // 何が届いても、PC が動いている証にはなる。
+    _lastPcMessage = DateTime.now();
+    if (!_pcAlive && mounted) setState(() => _pcAlive = true);
+
     final message = ConnectProtocol.parse(data);
     if (message == null) return;
 
@@ -798,23 +876,37 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
         _buildCardHeader(
           icon: Icons.usb,
           title: 'USB 直結',
-          // 「接続中」だと映像が出ていると誤解する。
-          // ここで分かるのはケーブルが挿さっていることだけ。
-          badge: _usbAttached ? 'ケーブル接続済み' : '未接続',
-          badgeIsGood: _usbAttached,
+          // 段階を分けて出す。
+          //
+          // 「ケーブルが挿さっている」と「相手で vmonitor が動いている」は
+          // 別のこと。PC 側のアプリを閉じても端末はアクセサリーモードの
+          // まま残るので、挿さっているだけで繋げると思わせてはいけない。
+          badge: !_usbAttached
+              ? '未接続'
+              : _pcAlive
+                  ? 'PC と通信できています'
+                  : 'PC が応答しません',
+          badgeIsGood: _usbAttached && _pcAlive,
         ),
         const SizedBox(height: 4),
         Text(
-          _usbAttached
-              ? 'いちばん遅延が少ない繋ぎ方です。'
-              : 'PC とケーブルで繋ぎ、PC 側で vmonitor を起動してください。',
-          style: const TextStyle(color: Colors.grey, fontSize: 12),
+          !_usbAttached
+              ? 'PC とケーブルで繋ぎ、PC 側で vmonitor を起動してください。'
+              : _pcAlive
+                  ? 'いちばん遅延が少ない繋ぎ方です。'
+                  : 'ケーブルは繋がっていますが、PC 側の vmonitor から応答がありません。'
+                    'PC で vmonitor を起動してください。',
+          style: TextStyle(
+            color: _usbAttached && !_pcAlive ? Colors.orange : Colors.grey,
+            fontSize: 12,
+          ),
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
           icon: const Icon(Icons.usb),
           label: const Text('USB で接続'),
-          onPressed: _usbAttached ? _connectUsbDirect : null,
+          // 相手が応答しているときだけ押せる。
+          onPressed: (_usbAttached && _pcAlive) ? _connectUsbDirect : null,
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(44),
           ),

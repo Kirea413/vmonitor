@@ -19,15 +19,19 @@ namespace VMonitor.Core.Models;
 /// </para>
 /// </param>
 /// <param name="ScalePercent">
-/// スマホに映すときの拡大率（パーセント）。
+/// スマホに映すときの表示スケール（パーセント）。
 /// <para>
-/// 100 なら端末の画素数そのままで仮想ディスプレイを作る。スマホの画面は
-/// 小さいので、そのままでは Windows の文字やボタンが細かすぎて読めない。
-/// 150 なら、見た目の大きさが 1.5 倍になるぶん狭い作業領域になる。
+/// Windows の「拡大縮小」と同じもの。解像度は端末の画素数のまま保ち、
+/// 文字やボタンだけを大きくする。スマホの画面は小さく、PC の画面を
+/// そのまま映すと細かすぎて読めないため。
 /// </para>
 /// <para>
-/// 端末の画素数を割って仮想ディスプレイの解像度を決める形で効かせる。
-/// 映像はスマホ側で画面いっぱいに伸ばされるため、拡大して見える。
+/// 以前は解像度を下げて実現していたが、それでは映像がぼやける。
+/// 表示スケールならくっきりしたまま大きくなる。
+/// </para>
+/// <para>
+/// Windows が用意している刻み（100/125/150/175/200/225/250/300…）に
+/// 丸められる。画面によって使える上限が違う。
 /// </para>
 /// </param>
 /// <param name="EnableTouch">
@@ -62,65 +66,15 @@ public record DisplaySettings(
     /// 360x800 を要求して 1920x1080 が出来てしまい、
     /// 「拡大率が効かない」という形で表面化した。
     /// </remarks>
-    /// <remarks>
-    /// 640 にしてあるのは、Windows のディスプレイの最小が概ね 640x480 で、
-    /// 縦長でも短辺がこれを下回ると通らないため。480 で試したところ
-    /// まだ拒否され、横長の既定モードが作られて比率が崩れた。
-    /// </remarks>
-    public const int MinDisplayEdge = 640;
-
     /// <summary>
-    /// 端末の画素数から、実際に作る仮想ディスプレイの解像度を求める。
+    /// 解像度は端末の画素数のまま使う。
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// 拡大率のぶん解像度を下げる。ただし短辺が <see cref="MinDisplayEdge"/> を
-    /// 下回らないところで頭打ちにする。下回ると要求そのものが無視され、
-    /// 拡大率が効かないどころか縦横比まで狂う。
-    /// </para>
-    /// <para>
-    /// エンコーダーは偶数でないと扱えないので 2 の倍数に丸める。
-    /// </para>
+    /// 以前は拡大率のぶん解像度を下げていたが、それでは映像がぼやけ、
+    /// 作業領域も狭くなる。いまは解像度を保ったまま Windows の
+    /// 表示スケールを上げる方式にしたので、ここでは何も変えない。
     /// </remarks>
-    public Resolution ApplyScale(Resolution physical)
-    {
-        int percent = SafeScalePercent;
-
-        if (percent == 100) return physical;
-
-        // 短辺が下限に達する拡大率を求め、そこで止める。
-        // 端末によって上限が違うので、固定値では決められない。
-        int shortEdge = Math.Min(physical.Width, physical.Height);
-        int maxPercent = Math.Max(100, shortEdge * 100 / MinDisplayEdge);
-
-        percent = Math.Min(percent, maxPercent);
-
-        if (percent <= 100) return physical;
-
-        static int Scaled(int value, int percent)
-        {
-            int scaled = (int)Math.Round(value * 100.0 / percent);
-
-            // 奇数だと NV12 に変換できない
-            if (scaled % 2 != 0) scaled--;
-
-            return scaled;
-        }
-
-        return new Resolution(Scaled(physical.Width, percent),
-                              Scaled(physical.Height, percent));
-    }
-
-    /// <summary>
-    /// 指定した画面で実際に効く拡大率。設定値が上限を超えていれば頭打ちの値。
-    /// </summary>
-    public int EffectiveScalePercent(Resolution physical)
-    {
-        int shortEdge  = Math.Min(physical.Width, physical.Height);
-        int maxPercent = Math.Max(100, shortEdge * 100 / MinDisplayEdge);
-
-        return Math.Min(SafeScalePercent, maxPercent);
-    }
+    public Resolution ApplyScale(Resolution physical) => physical;
 
     /// <summary>デフォルトのディスプレイ設定。</summary>
     public static readonly DisplaySettings Default = new(

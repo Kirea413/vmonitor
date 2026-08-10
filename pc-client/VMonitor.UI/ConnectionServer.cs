@@ -1119,9 +1119,24 @@ public sealed class ConnectionServer
                 var (channel, data) = receiver.Current;
                 if (channel != ChannelId.Control) continue;
 
+                // 生存確認には必ず返す。
+                //
+                // スマホは「PC 側で vmonitor が動いているか」をこれで判断し、
+                // 返事が無い間は接続ボタンを押せないようにしている。
+                // 返さないと、繋がっているのに永久に押せないままになる。
+                await ReplyToPingAsync(transport, data, ct);
+
                 // 呼び名を名乗ってくることがある。拾えるうちに拾っておく。
                 var announced = TryParseHelloName(data.Span);
-                if (announced is not null) _lastDeviceName = announced;
+
+                if (announced is not null)
+                {
+                    _lastDeviceName = announced;
+
+                    // 一覧の表示をその場で差し替える。
+                    // 繋ぐ前に機種名が分かれば、どれを選べばよいか迷わない。
+                    RenameUsbCandidate(announced, transportType);
+                }
 
                 if (IsConnectRequest(data.Span))
                 {
@@ -1135,6 +1150,67 @@ public sealed class ConnectionServer
         finally
         {
             Volatile.Write(ref _pcConnectSignal, null);
+        }
+    }
+
+    /// <summary>
+    /// 仮想ディスプレイの表示スケールを設定に合わせる。
+    /// </summary>
+    /// <remarks>
+    /// 効かなくても映すことはできるので、失敗しても接続は止めない。
+    /// ただし黙って諦めると「拡大率が効かない」としか見えないため、
+    /// 結果は必ず記録する。
+    /// </remarks>
+    private void ApplyDisplayScale(string deviceName)
+    {
+        int wanted = _displaySettings.SafeScalePercent;
+
+        var applied = VMonitor.Driver.DisplayScale.Apply(deviceName, wanted);
+
+        if (applied is null)
+        {
+            _logger.Warn("ConnectionServer",
+                $"表示スケール {wanted}% を設定できませんでした。等倍のまま映します。");
+            return;
+        }
+
+        _logger.Info("ConnectionServer",
+            applied == wanted
+                ? $"表示スケール {applied}%"
+                : $"表示スケール {applied}%（{wanted}% を指定しましたが、" +
+                  "この画面で使える値に丸めました）");
+    }
+
+    /// <summary>
+    /// 相手からの生存確認に返事をする。
+    /// </summary>
+    /// <remarks>
+    /// スマホは、繋ぐ前からこれで「PC 側で vmonitor が動いているか」を
+    /// 見ている。ケーブルを挿しただけでは分からないため。
+    /// PC 側のアプリを閉じても端末はアクセサリーモードのまま残るので、
+    /// 応答の有無でしか見分けられない。
+    /// </remarks>
+    private async Task ReplyToPingAsync(
+        ITransport transport, Memory<byte> data, CancellationToken ct)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(data);
+            var root = document.RootElement;
+
+            if (!root.TryGetProperty("type", out var type)) return;
+            if (type.GetString() != "ping") return;
+
+            long stamp = root.TryGetProperty("t", out var t) && t.TryGetInt64(out var v) ? v : 0;
+
+            var payload = System.Text.Encoding.UTF8.GetBytes(
+                $"{{\"type\":\"pong\",\"t\":{stamp}}}");
+
+            await transport.SendAsync(payload, ChannelId.Control, ct);
+        }
+        catch
+        {
+            // 生存確認以外の制御メッセージ
         }
     }
 
@@ -1576,21 +1652,9 @@ public sealed class ConnectionServer
                 // 映像はスマホ側で画面いっぱいに伸ばされるので、
                 // 低い解像度で作れば、そのぶん大きく見える。
                 // スマホの画素数そのままだと Windows の文字が細かすぎる。
+                // 解像度は端末の画素数のまま。拡大は表示スケールで行うので、
+                // ここで下げる必要はない（下げるとぼやける）。
                 var resolution = _displaySettings.ApplyScale(requested);
-                int effective  = _displaySettings.EffectiveScalePercent(requested);
-
-                if (resolution != requested)
-                {
-                    var note = effective < _displaySettings.SafeScalePercent
-                        ? $"（{_displaySettings.SafeScalePercent}% を指定しましたが、" +
-                          $"この画面では {effective}% が上限です）"
-                        : string.Empty;
-
-                    _logger.Info("ConnectionServer",
-                        $"拡大率 {effective}%: " +
-                        $"{requested.Width}x{requested.Height} → " +
-                        $"{resolution.Width}x{resolution.Height}{note}");
-                }
 
                 // 動いているものを先に畳む
                 await streamer.StopAsync();
@@ -1630,6 +1694,13 @@ public sealed class ConnectionServer
                         }
                         else
                         {
+                            // 表示スケールを当てる。
+                            //
+                            // 解像度ではなくこちらで大きくする。Windows の
+                            // 「拡大縮小」と同じもので、くっきりしたまま
+                            // 文字やボタンだけが大きくなる。
+                            ApplyDisplayScale(deviceName);
+
                             // 頼んだ大きさで出来たか確かめる。
                             //
                             // Windows は受け付けられない解像度を要求されると、
