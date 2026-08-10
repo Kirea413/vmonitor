@@ -170,26 +170,86 @@ public sealed class MakaretuMdnsBackend : IMdnsBackend
     // ── ヘルパー ─────────────────────────────────────────────────────────
 
     /// <summary>アドバタイズに使うローカル IPv4 アドレスを列挙する。</summary>
+    /// <summary>
+    /// スマホから届くアドレスを選ぶ。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 以前は動いている全インターフェースのアドレスを無差別に広告していた。
+    /// VMware や VirtualBox、Hyper-V、WSL、Tailscale などを入れていると
+    /// それらの仮想アダプターも混ざり、スマホがそちらを掴む。
+    /// 同じ LAN に居るのに繋がらない、という形で表面化する。
+    /// </para>
+    /// <para>
+    /// 実際に外と通じている口だけを選ぶ。判定にはゲートウェイの有無を使う。
+    /// 仮想アダプターの多くはゲートウェイを持たない。
+    /// </para>
+    /// </remarks>
     internal static IReadOnlyList<IPAddress> GetLocalIPAddresses()
     {
-        var addresses = new List<IPAddress>();
+        // ゲートウェイのあるものを先に並べる
+        var routable = new List<IPAddress>();
+        var others   = new List<IPAddress>();
 
         foreach (var iface in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (iface.OperationalStatus != OperationalStatus.Up) continue;
             if (iface.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            if (iface.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
 
-            foreach (var addr in iface.GetIPProperties().UnicastAddresses)
+            if (IsVirtualAdapter(iface)) continue;
+
+            var properties = iface.GetIPProperties();
+
+            bool hasGateway = properties.GatewayAddresses
+                .Any(g => g.Address is { } a &&
+                          a.AddressFamily == AddressFamily.InterNetwork &&
+                          !a.Equals(IPAddress.Any));
+
+            foreach (var addr in properties.UnicastAddresses)
             {
-                if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
-                    addresses.Add(addr.Address);
+                if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+
+                // 169.254.x.x は DHCP に失敗したときの仮のアドレス。
+                // これを広告しても誰も繋がれない。
+                if (IsLinkLocal(addr.Address)) continue;
+
+                (hasGateway ? routable : others).Add(addr.Address);
             }
         }
+
+        var addresses = routable.Concat(others).ToList();
 
         if (addresses.Count == 0)
             addresses.Add(IPAddress.Loopback);
 
         return addresses;
+    }
+
+    /// <summary>仮想マシンや VPN が作るアダプターか。</summary>
+    /// <remarks>
+    /// 種別だけでは見分けられない（多くが Ethernet を名乗る）ため、
+    /// 名前で判断する。取りこぼしても、ゲートウェイの有無で後ろに回る。
+    /// </remarks>
+    private static bool IsVirtualAdapter(NetworkInterface iface)
+    {
+        string text = $"{iface.Description} {iface.Name}";
+
+        string[] markers =
+        {
+            "VMware", "VirtualBox", "Hyper-V", "Virtual Adapter", "vEthernet",
+            "WSL", "Tailscale", "ZeroTier", "TAP-", "Loopback", "Bluetooth",
+        };
+
+        return markers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>169.254.x.x（DHCP に失敗したときの仮アドレス）か。</summary>
+    private static bool IsLinkLocal(IPAddress address)
+    {
+        var bytes = address.GetAddressBytes();
+
+        return bytes.Length == 4 && bytes[0] == 169 && bytes[1] == 254;
     }
 
     public void Dispose()

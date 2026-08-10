@@ -1,6 +1,8 @@
 #include "Driver.h"
 #include "Device.h"
 #include "ControlServer.h"
+// モニターを外す前にフレームの引き取りを止める必要がある
+#include "SwapChainProcessor.h"
 #include "Trace.h"
 
 #include <sddl.h>
@@ -25,7 +27,7 @@ namespace VMonitorControl
     static HANDLE g_ownerThread  = nullptr;   // 待ち受けているスレッド
     static HANDLE g_ownerCancel  = nullptr;   // 見張りをやめるための合図
 
-    static void DisconnectMonitor();          // 前方宣言
+    static bool DisconnectMonitor();          // 前方宣言
 
     /// <summary>持ち主の終了を待つ。死んだらモニターを外す。</summary>
     static DWORD WINAPI OwnerWatchThread(LPVOID)
@@ -102,22 +104,38 @@ namespace VMonitorControl
     // 利用者が切ったときと、持ち主が死んだときの両方から呼ばれる。
     // どちらも後始末の中身は同じなので、一箇所にまとめる。
     //
-    static void DisconnectMonitor()
+    static bool DisconnectMonitor()
     {
-        if (g_device == nullptr) return;
+        if (g_device == nullptr) return true;
 
         auto* Ctx = WdfObjectGet_IndirectDeviceContextWrapper(g_device);
-        if (Ctx == nullptr || Ctx->MonitorObject == nullptr) return;
+        if (Ctx == nullptr || Ctx->MonitorObject == nullptr) return true;
+
+        // 先にフレームの引き取りを止める。
+        //
+        // スワップチェーンを掴んだまま departure を呼ぶと失敗する。
+        // 失敗しても以前は参照を捨てていたため、二度と外せないモニターが
+        // 残っていた（アプリを終了しても画面が 1 枚多いまま）。
+        VMonitorSwapChain::Stop();
 
         NTSTATUS status = IddCxMonitorDeparture(Ctx->MonitorObject);
         VMTRACE_STATUS("Control: MonitorDeparture", status);
 
-        // 失敗しても状態は未接続に戻す。
-        // 掴んだままにすると次の接続要求が「既に接続中」と誤判定され、
-        // 二度とモニターを出せなくなる。
+        if (!NT_SUCCESS(status))
+        {
+            // 参照は捨てない。
+            //
+            // 捨てると、そのモニターに触る手立てが永久に失われる。
+            // 残しておけば次の切断要求で、あるいは持ち主が死んだときに
+            // もう一度試せる。
+            VMTRACE("Control: departure failed; keeping the monitor handle for retry");
+            return false;
+        }
+
         Ctx->MonitorObject = nullptr;
         Ctx->Width         = 0;
         Ctx->Height        = 0;
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -144,9 +162,18 @@ namespace VMonitorControl
 
             if (Ctx->MonitorObject != nullptr)
             {
-                // 既に接続中。二重に作らない。
-                res.Succeeded = 1;
-                break;
+                // 前回の切断に失敗して残っているかもしれない。
+                // まず外せるか試し、外せたら新しく作り直す。
+                //
+                // ここで無条件に「既に接続中」と返していると、
+                // 外せなかったモニターがそのまま使われ続け、
+                // 解像度の変更も効かなくなる。
+                if (!DisconnectMonitor())
+                {
+                    VMTRACE("Control: reusing the existing monitor (departure failed)");
+                    res.Succeeded = 1;
+                    break;
+                }
             }
 
             // スマホの解像度を最優先モードとして提示する。
