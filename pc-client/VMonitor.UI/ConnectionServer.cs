@@ -417,6 +417,17 @@ public sealed class ConnectionServer
         // PC から繋ぎにいくので、承認はスマホ側で取る
         _pcInitiated = true;
 
+        // 「この PC が言い出した」ことを、待ち合わせが見ている印にも残す。
+        //
+        // _pcInitiated だけでは足りない。WaitForConnectTriggerAsync が
+        // 見ているのは _pcConnectRequested のほうで、これを立てずに
+        // セッションを始めると、PC はスマホからの要求を待ち続ける。
+        // スマホは PC からの要求を待っている。互いに待ち合ってしまい、
+        // どちらにも承認ダイアログが出ないまま止まっていた。
+        //
+        // USB は ConnectUsbNow がここを立てていたので気付かれなかった。
+        Interlocked.Exchange(ref _pcConnectRequested, 1);
+
         SetOutboundState($"{address}:{port} へ接続しています…", connected: false, busy: true);
 
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(

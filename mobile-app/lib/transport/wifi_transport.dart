@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 
 import 'transport.dart';
@@ -112,11 +113,68 @@ class WifiTransport implements Transport {
   // mDNS 探索
   // ─────────────────────────────────────────────
 
+  /// iOS で Bonjour を叩くための口。
+  static const MethodChannel _discoveryChannel =
+      MethodChannel('vmonitor/discovery');
+
   /// _vmonitor._tcp mDNS サービスを探索して接続候補リストを返す。
-  /// multicast_dns パッケージを使って実際のネットワーク探索を行う。
+  ///
+  /// Android は multicast_dns（生の UDP）で探す。
+  ///
+  /// iOS はそれが使えない。生のマルチキャストには
+  /// `com.apple.developer.networking.multicast` の entitlement が要り、
+  /// Apple へ個別に申請しないと得られない。サイドロードでは尚更で、
+  /// 実機では 1 台も見つからなかった。iOS だけ OS 側の Bonjour に任せる。
   static Future<List<MdnsServiceRecord>> discoverServices({
     Duration timeout = const Duration(seconds: 5),
   }) async {
+    if (Platform.isIOS) return _discoverViaBonjour(timeout);
+
+    return _discoverViaMulticastDns(timeout);
+  }
+
+  /// OS の Bonjour に探してもらう（iOS）。
+  static Future<List<MdnsServiceRecord>> _discoverViaBonjour(
+      Duration timeout) async {
+    try {
+      final raw = await _discoveryChannel.invokeListMethod<Object?>(
+        'discover',
+        {
+          'type': '_vmonitor._tcp.',
+          'timeoutMs': timeout.inMilliseconds,
+        },
+      );
+
+      if (raw == null) return const [];
+
+      final results = <MdnsServiceRecord>[];
+
+      for (final entry in raw) {
+        if (entry is! Map) continue;
+
+        final ip = entry['ip'] as String?;
+        final port = entry['port'] as int?;
+        if (ip == null || port == null) continue;
+
+        results.add(MdnsServiceRecord(
+          serviceName: (entry['name'] as String?) ?? 'PC ($ip)',
+          hostName: (entry['host'] as String?) ?? ip,
+          port: port,
+          ipAddress: ip,
+        ));
+      }
+
+      return results;
+    } on PlatformException {
+      return const [];
+    } on MissingPluginException {
+      return const [];
+    }
+  }
+
+  /// 生の UDP で探す（Android）。
+  static Future<List<MdnsServiceRecord>> _discoverViaMulticastDns(
+      Duration timeout) async {
     final results = <MdnsServiceRecord>[];
     const serviceType = '_vmonitor._tcp';
 

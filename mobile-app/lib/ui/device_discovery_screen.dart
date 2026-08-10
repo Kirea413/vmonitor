@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -62,6 +63,12 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// USB 直結 (AOA) で PC が繋がっているか。
   bool _usbAttached = false;
 
+  /// この端末で USB 直結が使えるか。
+  ///
+  /// Android Open Accessory は Android 専用の仕組みで、iOS には無い。
+  /// 見張りも接続も意味が無いので、まとめてここで切る。
+  bool get _supportsUsb => Platform.isAndroid;
+
   /// この接続で使うトランスポートを作る関数。
   /// USB と Wi-Fi で作り方が違うので、接続を始めるときに決めておく。
   Transport Function() _transportFactory = WifiTransport.new;
@@ -103,26 +110,28 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     // 起動時は idle 状態（手動IP入力フォームを表示）
     // ユーザーが「Wi-Fi 検索」ボタンを押したら mDNS 探索を開始する
 
-    _autoConnectUsbIfAttached();
+    if (_supportsUsb) {
+      _autoConnectUsbIfAttached();
 
-    // ケーブルの抜き差しに追従する。
-    // 挿されたら通信路だけ開けて待つ（映像はまだ始めない）。
-    _usbStateSubscription = AoaTransport.stateChanges().listen(
-      (event) {
-        if (event.state == 'attached') {
-          _autoConnectUsbIfAttached();
-        } else {
-          _refreshUsbState();
-        }
-      },
-      onError: (Object _) {},
-    );
+      // ケーブルの抜き差しに追従する。
+      // 挿されたら通信路だけ開けて待つ（映像はまだ始めない）。
+      _usbStateSubscription = AoaTransport.stateChanges().listen(
+        (event) {
+          if (event.state == 'attached') {
+            _autoConnectUsbIfAttached();
+          } else {
+            _refreshUsbState();
+          }
+        },
+        onError: (Object _) {},
+      );
+    }
 
     // 通知が来なくても気づけるように、自分でも見に行く。
     _usbPollTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
-        _autoConnectUsbIfAttached();
+        if (_supportsUsb) _autoConnectUsbIfAttached();
         // Wi-Fi に後から繋いだ場合、アドレスはあとから生える
         _refreshLocalAddresses();
         // PC 側の vmonitor が生きているかを見張る
@@ -702,7 +711,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     );
 
     _transportFactory = UsbTransport.new;
-    _connect(device);
+    unawaited(_connectWithApproval(device));
   }
 
   // ── 手動IP接続 ────────────────────────────────────────────────
@@ -721,7 +730,92 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     );
 
     _transportFactory = WifiTransport.new;
-    _connect(device);
+    unawaited(_connectWithApproval(device));
+  }
+
+  // ── こちらから繋ぎにいく（承認あり）────────────────────────
+
+  /// PC へ繋ぎ、PC 側の承認を得てから映像に進む。
+  ///
+  /// 繋いだだけで映像画面へ行ってはいけない。PC は可否の返事を受け取って
+  /// から映像を送り始めるので、返事をしないまま進むと何も届かず、
+  /// 真っ暗な画面のまま止まる。PC 側にもダイアログが出ない。
+  ///
+  /// USB は [_connectUsbDirect] が同じことをしている。Wi-Fi だけ
+  /// 素通りしていた。
+  Future<void> _connectWithApproval(MdnsServiceRecord device) async {
+    setState(() {
+      _connectingDevice = device;
+      _screenState = _ScreenState.connecting;
+    });
+
+    // 繋いでいる間は待ち受けを畳む
+    await _stopListening();
+
+    final transport = _transportFactory();
+
+    try {
+      await transport.connect(device.ipAddress, device.port)
+          .timeout(_connectionTimeout);
+    } catch (_) {
+      await transport.disconnect();
+      if (!mounted) return;
+      setState(() => _screenState = _ScreenState.timedOut);
+      return;
+    }
+
+    if (!mounted) {
+      await transport.disconnect();
+      return;
+    }
+
+    _adoptControlLink(transport, device);
+
+    final pending = Completer<bool>();
+    _pendingApproval = pending;
+
+    setState(() => _screenState = _ScreenState.waitingApproval);
+
+    try {
+      await transport.send(
+        ConnectProtocol.request(ConnectProtocol.initiatorPhone),
+        ChannelId.control,
+      );
+    } catch (_) {
+      _pendingApproval = null;
+      await _closeControlLink();
+      if (!mounted) return;
+      setState(() => _screenState = _ScreenState.timedOut);
+      return;
+    }
+
+    bool approved;
+    try {
+      approved = await pending.future.timeout(_approvalTimeout);
+    } catch (_) {
+      approved = false;
+    }
+
+    _pendingApproval = null;
+
+    if (!mounted) return;
+
+    if (!approved) {
+      await _closeControlLink();
+      if (!mounted) return;
+
+      setState(() => _screenState = _ScreenState.idle);
+      await _startListening();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PC 側で許可されませんでした。')),
+      );
+      return;
+    }
+
+    setState(() => _screenState = _ScreenState.idle);
+    _startSessionOnControlLink();
   }
 
   // ── 接続処理 ─────────────────────────────────────────────────
@@ -796,7 +890,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   void _retry() {
     final device = _connectingDevice;
     if (device != null) {
-      _connect(device);
+      unawaited(_connectWithApproval(device));
     } else {
       setState(() {
         _screenState = _ScreenState.idle;
@@ -843,8 +937,13 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// 分からなかった。USB が挿さっていればそれがいちばん速く確実なので、
   /// 挿さっているときは手前に出す。挿さっていなければ Wi-Fi を手前に出す。
   Widget _buildIdleView() {
+    // USB 直結は Android Open Accessory の仕組みで、iOS には無い。
+    // 出しても押せないだけの欄になり、「壊れている」と受け取られる。
     final sections = <Widget>[
-      if (_usbAttached) ...[
+      if (!_supportsUsb) ...[
+        _buildListeningCard(),
+        _buildWifiCard(),
+      ] else if (_usbAttached) ...[
         _buildUsbCard(),
         _buildListeningCard(),
         _buildWifiCard(),
@@ -1031,7 +1130,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
               trailing: FilledButton(
                 onPressed: () {
                   _transportFactory = WifiTransport.new;
-                  _connect(device);
+                  unawaited(_connectWithApproval(device));
                 },
                 child: const Text('接続'),
               ),

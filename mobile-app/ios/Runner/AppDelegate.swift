@@ -32,6 +32,108 @@ class VMonitorViewController: FlutterViewController {
     }
 }
 
+/// Bonjour で PC を探す。
+///
+/// Dart 側の multicast_dns は 224.0.0.251 へ生の UDP を投げる作りで、
+/// iOS ではこれに `com.apple.developer.networking.multicast` の
+/// entitlement が要る。Apple へ個別に申請して得るもので、サイドロードでは
+/// そもそも使えない。結果、iOS だけ PC を 1 台も見つけられなかった。
+///
+/// NetServiceBrowser のような高レベルの API は、この entitlement なしで
+/// 使える（内部のマルチキャストは OS が面倒を見る）。Info.plist の
+/// NSBonjourServices とローカルネットワークの許可だけで足りる。
+class BonjourBrowser: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
+
+    private let browser = NetServiceBrowser()
+
+    /// 解決待ちの間、強い参照を保つ。手放すと解決前に消える。
+    private var resolving: [NetService] = []
+
+    private var found: [[String: Any]] = []
+    private var completion: (([[String: Any]]) -> Void)?
+    private var deadline: Timer?
+
+    func search(type: String, timeout: TimeInterval,
+                completion: @escaping ([[String: Any]]) -> Void) {
+        self.completion = completion
+
+        browser.delegate = self
+        browser.searchForServices(ofType: type, inDomain: "local.")
+
+        deadline = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+            self?.finish()
+        }
+    }
+
+    private func finish() {
+        guard let completion else { return }
+        self.completion = nil
+
+        deadline?.invalidate()
+        deadline = nil
+
+        browser.stop()
+        resolving.removeAll()
+
+        completion(found)
+    }
+
+    // MARK: - NetServiceBrowserDelegate
+
+    func netServiceBrowser(_ browser: NetServiceBrowser,
+                           didFind service: NetService,
+                           moreComing: Bool) {
+        service.delegate = self
+        resolving.append(service)
+
+        // ここで名前からアドレスまで引く。引かないとポートも分からない。
+        service.resolve(withTimeout: 5.0)
+    }
+
+    // MARK: - NetServiceDelegate
+
+    func netServiceDidResolveAddress(_ service: NetService) {
+        guard let addresses = service.addresses else { return }
+
+        // IPv4 だけ拾う。PC 側の待ち受けも IPv4 で、
+        // IPv6 のアドレスを渡すと繋ぎに行って失敗する。
+        for data in addresses {
+            guard let ip = Self.ipv4(from: data) else { continue }
+
+            found.append([
+                "name": service.name,
+                "host": service.hostName ?? ip,
+                "port": service.port,
+                "ip":   ip,
+            ])
+            break
+        }
+    }
+
+    func netService(_ service: NetService,
+                    didNotResolve errorDict: [String: NSNumber]) {
+        // 引けなかった 1 台は諦める。他の相手の探索は続ける。
+    }
+
+    /// sockaddr の入った Data から IPv4 アドレスの文字列を取り出す。
+    private static func ipv4(from data: Data) -> String? {
+        return data.withUnsafeBytes { raw -> String? in
+            guard let base = raw.baseAddress else { return nil }
+
+            let addr = base.assumingMemoryBound(to: sockaddr.self)
+            guard addr.pointee.sa_family == UInt8(AF_INET) else { return nil }
+
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+
+            let ok = getnameinfo(addr, socklen_t(data.count),
+                                 &host, socklen_t(host.count),
+                                 nil, 0, NI_NUMERICHOST) == 0
+
+            return ok ? String(cString: host) : nil
+        }
+    }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate {
     override func application(
@@ -41,6 +143,7 @@ class VMonitorViewController: FlutterViewController {
         GeneratedPluginRegistrant.register(with: self)
         RendererPlugin.register(with: registrar(forPlugin: "RendererPlugin")!)
         registerScreenChannel()
+        registerDiscoveryChannel()
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 
@@ -55,6 +158,38 @@ class VMonitorViewController: FlutterViewController {
 
     /// 明るさを固定する前の値。戻すために覚えておく。
     private var savedBrightness: CGFloat?
+
+    /// 探索中のブラウザ。終わるまで手放さない。
+    private var browser: BonjourBrowser?
+
+    /// Bonjour での探索をひとつだけ受け付ける口。
+    private func registerDiscoveryChannel() {
+        guard let messenger = registrar(forPlugin: "DiscoveryChannel")?.messenger() else { return }
+
+        let channel = FlutterMethodChannel(
+            name: "vmonitor/discovery",
+            binaryMessenger: messenger
+        )
+
+        channel.setMethodCallHandler { [weak self] call, result in
+            guard call.method == "discover" else {
+                result(FlutterMethodNotImplemented)
+                return
+            }
+
+            let args = call.arguments as? [String: Any]
+            let type = (args?["type"] as? String) ?? "_vmonitor._tcp."
+            let ms   = (args?["timeoutMs"] as? Int) ?? 5000
+
+            let browser = BonjourBrowser()
+            self?.browser = browser
+
+            browser.search(type: type, timeout: Double(ms) / 1000.0) { [weak self] services in
+                self?.browser = nil
+                result(services)
+            }
+        }
+    }
 
     private func registerScreenChannel() {
         guard let messenger = registrar(forPlugin: "ScreenChannel")?.messenger() else { return }
