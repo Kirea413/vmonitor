@@ -1,6 +1,37 @@
 import Flutter
 import UIKit
 
+/// 画面の端のスワイプを、一度目では効かせないようにした FlutterViewController。
+///
+/// 画面いっぱいが PC の入力面なので、下端を触る操作は日常的に起きる。
+/// 既定のままだと、そのたびにホーム画面へ戻ってしまう。
+///
+/// `preferredScreenEdgesDeferringSystemGestures` に下端を指定すると、
+/// 一度目のスワイプではホームインジケータが出るだけで、二度目で初めて
+/// ホームへ戻る。誤操作は防ぎつつ、抜け道は塞がない。
+///
+/// 新しいファイルにすると Xcode プロジェクトへの登録も手で書くことになり、
+/// 実際それで一度ビルドを落としている。登録済みのこのファイルに置く。
+class VMonitorViewController: FlutterViewController {
+
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+        // 下端 = ホームインジケータ。上端 = コントロールセンター / 通知。
+        // どちらも映像の上を触っているだけで出てしまう。
+        return [.bottom, .top]
+    }
+
+    /// 操作が無い間はホームインジケータを消す。
+    ///
+    /// 白い横棒が映像に重なったままになるのを避ける。触れば戻ってくる。
+    override var prefersHomeIndicatorAutoHidden: Bool {
+        return true
+    }
+
+    override var prefersStatusBarHidden: Bool {
+        return true
+    }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate {
     override func application(
@@ -43,6 +74,16 @@ import UIKit
             case "setBrightness":
                 self?.setBrightness(call.arguments as? Double)
                 result(nil)
+
+            case "deviceName":
+                // PC の一覧に出す呼び名。
+                //
+                // 名乗らないと、複数台あるときにどれが自分のものか
+                // 分からない。Android では機種名を送っている。
+                //
+                // iOS 16 以降、UIDevice.name は権限が無いと機種名
+                // ("iPhone" など) を返す。それでも無いよりはよい。
+                result(UIDevice.current.name)
 
             default:
                 result(FlutterMethodNotImplemented)

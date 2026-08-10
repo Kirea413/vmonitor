@@ -68,3 +68,6 @@ tools/shots/
 *.swp
 Thumbs.db
 desktop.ini
+
+# Sideloadly が起動フォルダに吐くログ
+sideloadlydaemon.log

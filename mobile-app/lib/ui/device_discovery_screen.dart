@@ -10,6 +10,7 @@ import '../transport/transport.dart';
 import '../transport/usb_transport.dart';
 import '../transport/wifi_listen_transport.dart';
 import '../transport/wifi_transport.dart';
+import 'screen_awake.dart';
 
 /// デバイス探索・接続画面
 ///
@@ -212,7 +213,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       return;
     }
 
-    // この待ち受けはもう映像画面のものになる。
+    // この待ち受けは通信路として引き継ぐ。
     // 画面を離れるときにこちらから切らないよう、手放しておく。
     _listener = null;
     _listeningPort = null;
@@ -224,8 +225,14 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       ipAddress: remote,
     );
 
-    // 既に繋がっているので、改めて接続しにいく必要はない
-    _connect(device, connected: listener);
+    // 繋がっただけでは映像へ進まない。
+    //
+    // 以前はここで直接 _connect していた。PC は接続の可否を尋ねてから
+    // 映像を送り始めるので、返事をしないまま映像画面へ行っても
+    // 何も届かず、真っ暗なまま止まっていた。承認ダイアログも出ない。
+    //
+    // USB と同じ通信路として引き取り、PC の要求を待つ。
+    _adoptControlLink(listener, device);
   }
 
   /// PC 側の vmonitor が応答しているか。
@@ -246,7 +253,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   ///
   /// 開いている通信路へ問いかけ、返事があるかを見る。
   Future<void> _probePc() async {
-    final link = _usbLink;
+    final link = _controlLink;
 
     if (link == null) {
       if (_pcAlive && mounted) setState(() => _pcAlive = false);
@@ -317,16 +324,27 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     await _openUsbLink();
   }
 
-  // ── USB の通信路を開けて待つ ────────────────────────────────
+  // ── 待機中の通信路 ──────────────────────────────────────────
 
-  /// 待機中に開いておく USB の通信路。
+  /// 待機中に開いておく通信路。
   ///
   /// これを開いたままにしておくことで、PC 側で「接続」を押されたときに
   /// その要求を受け取って、この端末に承認を出せる。
-  AoaTransport? _usbLink;
+  ///
+  /// USB と Wi-Fi のどちらもここに入る。
+  ///
+  /// 以前は AoaTransport 固定で、承認のやり取りが USB でしか動かなかった。
+  /// Wi-Fi は繋がった瞬間に映像画面へ進んでいたため、
+  ///   * 承認ダイアログが出ない
+  ///   * PC は返事を待ち続けるので映像が来ず、画面が真っ暗になる
+  /// という状態だった。iOS は Wi-Fi しか使えないので、何もできなかった。
+  Transport? _controlLink;
+
+  /// この通信路で映像に進むときに使う相手の情報。
+  MdnsServiceRecord? _controlPeer;
 
   /// 通信路の制御チャンネルの購読。
-  StreamSubscription<({ChannelId channel, Uint8List data})>? _usbControlSub;
+  StreamSubscription<({ChannelId channel, Uint8List data})>? _controlSub;
 
   /// PC の承認を待っている間の待ち合わせ。
   Completer<bool>? _pendingApproval;
@@ -336,7 +354,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
   /// USB の通信路を開き、PC からの要求を聞けるようにする。
   Future<void> _openUsbLink() async {
-    if (_usbLink != null) return;   // 既に開いている
+    if (_controlLink != null) return;   // 既に開いている
 
     final link = AoaTransport();
 
@@ -352,14 +370,31 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       return;
     }
 
-    _usbLink = link;
+    _adoptControlLink(
+      link,
+      const MdnsServiceRecord(
+        serviceName: 'PC (USB 直結)',
+        hostName: 'usb',
+        port: 0,
+        ipAddress: 'usb',
+      ),
+    );
+  }
 
-    _usbControlSub = link.receive().listen(
+  /// 開いた通信路を「待機中の通信路」として引き取る。
+  ///
+  /// USB でも Wi-Fi でも、ここから先の扱いは同じ。PC からの要求を聞き、
+  /// 承認を取り、返事を返してから映像へ進む。
+  void _adoptControlLink(Transport link, MdnsServiceRecord peer) {
+    _controlLink = link;
+    _controlPeer = peer;
+
+    _controlSub = link.receive().listen(
       (e) {
-        if (e.channel == ChannelId.control) _onUsbControlMessage(e.data);
+        if (e.channel == ChannelId.control) _onControlMessage(e.data);
       },
       onError: (Object _) {},
-      onDone: _onUsbLinkClosed,
+      onDone: _onControlLinkClosed,
     );
 
     // 繋がった時点で名乗る。
@@ -375,7 +410,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// この端末の呼び名を相手に伝える。
   Future<void> _announceSelf(Transport link) async {
     try {
-      final name = await AoaTransport.deviceName();
+      // AOA が無い環境（iOS）では画面まわりの口から取る
+      final name = await AoaTransport.deviceName() ?? await ScreenAwake.deviceName();
       if (name == null || name.isEmpty) return;
 
       await link.send(
@@ -390,12 +426,13 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     }
   }
 
-  void _onUsbLinkClosed() {
+  void _onControlLinkClosed() {
     if (!mounted) return;
 
-    _usbControlSub?.cancel();
-    _usbControlSub = null;
-    _usbLink = null;
+    _controlSub?.cancel();
+    _controlSub = null;
+    _controlLink = null;
+    _controlPeer = null;
 
     // 待っている人がいれば起こす
     final pending = _pendingApproval;
@@ -403,21 +440,25 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     _pendingApproval = null;
 
     setState(() {});
+
+    // Wi-Fi の相手が去っただけなら、また待ち受けに戻る
+    if (_screenState == _ScreenState.idle) _restartListeningSoon();
   }
 
   /// 通信路を畳む。映像画面へ引き継ぐときは呼ばない。
-  Future<void> _closeUsbLink() async {
-    final link = _usbLink;
-    _usbLink = null;
+  Future<void> _closeControlLink() async {
+    final link = _controlLink;
+    _controlLink = null;
+    _controlPeer = null;
 
-    await _usbControlSub?.cancel();
-    _usbControlSub = null;
+    await _controlSub?.cancel();
+    _controlSub = null;
 
     await link?.disconnect();
   }
 
   /// PC から届いた制御メッセージを処理する。
-  void _onUsbControlMessage(Uint8List data) {
+  void _onControlMessage(Uint8List data) {
     // 何が届いても、PC が動いている証にはなる。
     _lastPcMessage = DateTime.now();
     if (!_pcAlive && mounted) setState(() => _pcAlive = true);
@@ -474,7 +515,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
     _approvalDialogOpen = false;
 
-    final link = _usbLink;
+    final link = _controlLink;
     if (link == null) return;
 
     try {
@@ -487,30 +528,33 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       return;
     }
 
-    if (!approved || !mounted) return;
+    if (!approved) {
+      // 断ったら通信路も畳む。開けたままだと PC からもう一度
+      // 要求が飛んできて、断ったはずのダイアログがまた出る。
+      await _closeControlLink();
+      if (mounted) _restartListeningSoon();
+      return;
+    }
+
+    if (!mounted) return;
 
     // 承認したので、この通信路のまま映像へ進む
-    _startSessionOnUsbLink();
+    _startSessionOnControlLink();
   }
 
   /// 開いてある通信路をそのまま使ってセッションを始める。
-  void _startSessionOnUsbLink() {
-    final link = _usbLink;
-    if (link == null) return;
+  void _startSessionOnControlLink() {
+    final link = _controlLink;
+    final peer = _controlPeer;
+    if (link == null || peer == null) return;
 
     // 通信路は映像画面のものになる。こちらからは畳まない。
-    _usbControlSub?.cancel();
-    _usbControlSub = null;
-    _usbLink = null;
+    _controlSub?.cancel();
+    _controlSub = null;
+    _controlLink = null;
+    _controlPeer = null;
 
-    const device = MdnsServiceRecord(
-      serviceName: 'PC (USB 直結)',
-      hostName: 'usb',
-      port: 0,
-      ipAddress: 'usb',
-    );
-
-    _connect(device, connected: link);
+    _connect(peer, connected: link);
   }
 
   @override
@@ -526,7 +570,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     unawaited(listener?.disconnect() ?? Future<void>.value());
 
     // USB も掴んだままにしない
-    unawaited(_closeUsbLink());
+    unawaited(_closeControlLink());
 
     _ipController.dispose();
     _portController.dispose();
@@ -585,7 +629,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   Future<void> _connectUsbDirect() async {
     await _openUsbLink();
 
-    final link = _usbLink;
+    final link = _controlLink;
 
     if (link == null) {
       if (!mounted) return;
@@ -634,7 +678,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     }
 
     setState(() => _screenState = _ScreenState.idle);
-    _startSessionOnUsbLink();
+    _startSessionOnControlLink();
   }
 
   /// 相手の承認を待つ上限。

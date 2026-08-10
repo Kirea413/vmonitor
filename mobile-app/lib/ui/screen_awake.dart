@@ -26,6 +26,21 @@ class ScreenAwake {
     await _invoke('setBrightness', level);
   }
 
+  /// この端末の呼び名。取れなければ null。
+  ///
+  /// Android は AOA の口 ([AoaTransport.deviceName]) から取れるが、
+  /// iOS には AOA が無い。名乗れないと PC の一覧で見分けが付かないので、
+  /// こちらからも取れるようにしてある。
+  static Future<String?> deviceName() async {
+    try {
+      return await _channel.invokeMethod<String>('deviceName');
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   static Future<void> _invoke(String method, Object? arguments) async {
     try {
       await _channel.invokeMethod<void>(method, arguments);
