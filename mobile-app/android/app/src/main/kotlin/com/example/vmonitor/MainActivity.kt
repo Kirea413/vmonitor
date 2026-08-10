@@ -33,6 +33,11 @@ class MainActivity : FlutterActivity() {
                         setKeepAwake(keep)
                         result.success(null)
                     }
+                    "setBrightness" -> {
+                        // null なら端末の設定に戻す
+                        setBrightness(call.arguments as? Double)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -55,9 +60,37 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /**
+     * 画面の明るさをこのウィンドウの間だけ固定する。
+     *
+     * FLAG_KEEP_SCREEN_ON は画面を消させないだけで、明るさまでは
+     * 抑えてくれない。触らない時間が続くと端末側が段階的に暗くする
+     * （自動調整や「見ていないとき」の減光）。モニターとして置いて
+     * 眺めているだけの使い方では、まさにそれが起きる。
+     *
+     * ウィンドウ属性の screenBrightness を指定すると、端末の設定より
+     * こちらが優先される。効くのはこのウィンドウが前面にある間だけで、
+     * 端末全体の明るさ設定は書き換えない（WRITE_SETTINGS も要らない）。
+     *
+     * @param level 0.0〜1.0。null なら端末の設定に従う。
+     */
+    private fun setBrightness(level: Double?) {
+        runOnUiThread {
+            val attributes = window.attributes
+
+            // 0 は「画面が消えたのと変わらない」暗さになる端末があるため、
+            // 下限を少し上げておく。
+            attributes.screenBrightness = level?.toFloat()?.coerceIn(0.05f, 1.0f)
+                ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+
+            window.attributes = attributes
+        }
+    }
+
     override fun onDestroy() {
         // 消し忘れない。次に開いたとき点きっぱなしになると困る。
         setKeepAwake(false)
+        setBrightness(null)
         super.onDestroy()
     }
 

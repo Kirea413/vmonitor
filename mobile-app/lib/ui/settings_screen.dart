@@ -1,5 +1,6 @@
 ﻿import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 
@@ -184,6 +185,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
             setState(() {});
           },
         ),
+
+        // 消えないことと、暗くならないことは別。
+        // 消えない設定にしていても、触らずにいると端末が勝手に減光する。
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('映している間は暗くしない',
+              style: TextStyle(fontSize: 14)),
+          subtitle: const Text(
+            '触っていないと端末が勝手に画面を暗くします。それを止めます。'
+            '効くのはこのアプリを開いている間だけで、端末の明るさ設定は変えません。',
+            style: TextStyle(fontSize: 11),
+          ),
+          value: displayPreferences.keepScreenBright,
+          onChanged: (value) {
+            displayPreferences.setKeepScreenBright(value);
+            setState(() {});
+          },
+        ),
+
+        // 常に最大だと電池と発熱がきつい。暗くならなければ十分、
+        // という使い方のために選べるようにしてある。
+        if (displayPreferences.keepScreenBright)
+          Padding(
+            padding: const EdgeInsets.only(left: 8, right: 8, bottom: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.brightness_low, size: 18),
+                Expanded(
+                  child: Slider(
+                    min: DisplayPreferences.minBrightness,
+                    max: 1.0,
+                    divisions: 19,
+                    label:
+                        '${(displayPreferences.screenBrightness * 100).round()}%',
+                    value: displayPreferences.screenBrightness,
+                    onChanged: (value) {
+                      displayPreferences.setScreenBrightness(value);
+                      setState(() {});
+                    },
+                  ),
+                ),
+                const Icon(Icons.brightness_high, size: 18),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 40,
+                  child: Text(
+                    '${(displayPreferences.screenBrightness * 100).round()}%',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                        fontSize: 12, fontFeatures: [FontFeature.tabularFigures()]),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
         const SizedBox(height: 16),
         Text('切断の操作', style: Theme.of(context).textTheme.titleSmall),

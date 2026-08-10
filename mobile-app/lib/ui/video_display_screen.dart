@@ -87,6 +87,9 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
     // 2 枚目のモニターとして使っているのに消えては成立しない。
     ScreenAwake.set(displayPreferences.keepScreenAwake);
 
+    // 消えないだけでは足りない。触らずにいると端末が勝手に暗くする。
+    ScreenAwake.setBrightness(displayPreferences.brightnessOverride);
+
     // タッチイベントを PC へ送れるようトランスポートを繋ぐ
     _touchProxy.attach(widget.transport);
 
@@ -95,8 +98,9 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
 
   @override
   void dispose() {
-    // 映像を出していないのに点けたままにしない
+    // 映像を出していないのに点けたまま・明るいままにしない
     ScreenAwake.set(false);
+    ScreenAwake.setBrightness(null);
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
@@ -116,6 +120,7 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
   void _onPreferencesChanged() {
     // 設定を変えたその場で効かせる
     ScreenAwake.set(displayPreferences.keepScreenAwake);
+    ScreenAwake.setBrightness(displayPreferences.brightnessOverride);
 
     if (mounted) setState(() {});
   }

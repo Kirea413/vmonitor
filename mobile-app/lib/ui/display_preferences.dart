@@ -70,6 +70,8 @@ class DisplayPreferences extends ChangeNotifier {
   static const String _keyGesture     = 'display.disconnectGesture';
   static const String _keyConfirm     = 'display.confirmBeforeDisconnect';
   static const String _keyKeepAwake   = 'display.keepScreenAwake';
+  static const String _keyKeepBright  = 'display.keepScreenBright';
+  static const String _keyBrightness  = 'display.screenBrightness';
 
   /// 余白の上限。これ以上狭めると映像が小さくなりすぎる。
   static const double maxInset = 80;
@@ -84,7 +86,9 @@ class DisplayPreferences extends ChangeNotifier {
 
   DisconnectGesture _disconnectGesture = DisconnectGesture.threeFingerSwipeDown;
   bool _confirmBeforeDisconnect = true;
-  bool _keepScreenAwake = true;
+  bool _keepScreenAwake  = true;
+  bool _keepScreenBright = true;
+  double _screenBrightness = 1.0;
 
   /// 映像とタッチ領域の余白。
   ///
@@ -147,6 +151,40 @@ class DisplayPreferences extends ChangeNotifier {
     await _save();
   }
 
+  /// 映像を出している間、明るさを固定するか。
+  ///
+  /// 画面を消させる・消させないとは別の話。消えないようにしても、
+  /// 触らない時間が続けば端末が自動調整や減光で勝手に暗くする。
+  /// モニターとして置いて眺めているだけのときに、まさにこれが起きる。
+  ///
+  /// 固定するのはこのアプリが前面にある間だけで、端末全体の
+  /// 明るさ設定は書き換えない。
+  bool get keepScreenBright => _keepScreenBright;
+
+  Future<void> setKeepScreenBright(bool value) async {
+    _keepScreenBright = value;
+    notifyListeners();
+    await _save();
+  }
+
+  /// 固定するときの明るさ（0.05〜1.0）。
+  ///
+  /// 常に最大にすると電池と発熱がきつい。暗くならなければ十分、
+  /// という使い方のために選べるようにしてある。
+  double get screenBrightness => _screenBrightness;
+
+  Future<void> setScreenBrightness(double value) async {
+    _screenBrightness = value.clamp(minBrightness, 1.0);
+    notifyListeners();
+    await _save();
+  }
+
+  /// これより暗くすると、点いているのか分からなくなる端末がある。
+  static const double minBrightness = 0.05;
+
+  /// ネイティブへ渡す明るさ。固定しない設定なら null。
+  double? get brightnessOverride => _keepScreenBright ? _screenBrightness : null;
+
   /// 保存済みの設定を読み込む。読めなければ既定値のまま。
   Future<void> load() async {
     try {
@@ -170,8 +208,12 @@ class DisplayPreferences extends ChangeNotifier {
 
       _confirmBeforeDisconnect = prefs.getBool(_keyConfirm) ?? true;
       _keepScreenAwake         = prefs.getBool(_keyKeepAwake) ?? true;
+      _keepScreenBright        = prefs.getBool(_keyKeepBright) ?? true;
 
-      
+      _screenBrightness =
+          (prefs.getDouble(_keyBrightness) ?? 1.0).clamp(minBrightness, 1.0);
+
+
 
       notifyListeners();
     } catch (_) {
@@ -219,6 +261,8 @@ class DisplayPreferences extends ChangeNotifier {
       await prefs.setInt(_keyGesture,        _disconnectGesture.index);
       await prefs.setBool(_keyConfirm,       _confirmBeforeDisconnect);
       await prefs.setBool(_keyKeepAwake,     _keepScreenAwake);
+      await prefs.setBool(_keyKeepBright,    _keepScreenBright);
+      await prefs.setDouble(_keyBrightness,  _screenBrightness);
     } catch (_) {
       // 保存できなくても、この起動の間は設定が効く
     }
