@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../transport/aoa_transport.dart';
 import '../transport/connect_protocol.dart';
+import '../transport/relay_transport.dart';
 import '../transport/transport.dart';
 import '../transport/usb_transport.dart';
 import '../transport/wifi_listen_transport.dart';
@@ -394,7 +395,16 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   ///
   /// USB でも Wi-Fi でも、ここから先の扱いは同じ。PC からの要求を聞き、
   /// 承認を取り、返事を返してから映像へ進む。
-  void _adoptControlLink(Transport link, MdnsServiceRecord peer) {
+  void _adoptControlLink(Transport rawLink, MdnsServiceRecord peer) {
+    // 受信は待機画面と映像画面の 2 か所が順に購読する。
+    //
+    // Wi-Fi の受信は普通の StreamController で、二度目の listen は
+    // 「Stream has already been listened to」で失敗する。cancel しても
+    // 張り直せない。USB は broadcast だったので表に出ていなかった。
+    //
+    // 引き継ぎの間に届いたものを預かる包みを噛ませる。
+    final link = RelayTransport(rawLink);
+
     _controlLink = link;
     _controlPeer = peer;
 
@@ -771,13 +781,16 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
     _adoptControlLink(transport, device);
 
+    final link = _controlLink;
+    if (link == null) return;
+
     final pending = Completer<bool>();
     _pendingApproval = pending;
 
     setState(() => _screenState = _ScreenState.waitingApproval);
 
     try {
-      await transport.send(
+      await link.send(
         ConnectProtocol.request(ConnectProtocol.initiatorPhone),
         ChannelId.control,
       );
