@@ -123,14 +123,37 @@ $aoaInf = Join-Path $DriverDir 'VMonitorAOA\VMonitorAOA.inf'
 if (Test-Path $aoaInf) {
     Copy-Item $aoaInf $DistDir
 
-    # DriverVer を打ち直す。据え置きにすると、修正版を配っても
-    # 「既に同じかそれより新しいものが入っています」と判定されて
-    # 古い INF が使われ続ける。
-    $stampinf = Find-LatestTool 'x86\stampinf.exe'
-    & $stampinf -f (Join-Path $DistDir 'VMonitorAOA.inf') -d '*' -v '*'
+    # ここでは打ち直さない。両方まとめて下で行う。
+}
+
+# ── DriverVer を打ち直す ───────────────────────────────────────────────
+#
+# 据え置きにすると、修正版を配っても「既に同じかそれより新しいものが
+# 入っています」と判定されて古い INF が使われ続ける。
+#
+# 日付は UTC で入れること。stampinf の '*' は現地時刻を書くが、
+# Inf2Cat は UTC で「未来の日付か」を判定する。日本のように UTC より
+# 進んでいる地域では、深夜 0 時から朝 9 時のあいだだけ現地の日付が
+# UTC の日付を追い越し、
+#
+#   22.9.7: DriverVer set to a date in the future
+#
+# で署名が通らなくなる。実際それで止まった。
+Write-Step 'DriverVer を打ち直しています...'
+
+$stampinf  = Find-LatestTool 'x86\stampinf.exe'
+$stampDate = [DateTime]::UtcNow.ToString('MM/dd/yyyy')
+
+Write-Host "   日付 (UTC): $stampDate"
+
+foreach ($name in @('VMonitorVDD.inf', 'VMonitorAOA.inf')) {
+    $target = Join-Path $DistDir $name
+    if (-not (Test-Path $target)) { continue }
+
+    & $stampinf -f $target -d $stampDate -v '*'
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Host '   stampinf に失敗しました。INF の DriverVer は記述のままになります。' -ForegroundColor Yellow
+        Write-Host "   stampinf に失敗しました: $name" -ForegroundColor Yellow
     }
 }
 
