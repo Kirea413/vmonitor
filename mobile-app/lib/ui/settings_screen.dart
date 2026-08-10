@@ -322,6 +322,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           '映像ごと内側に寄せるため、PC 画面のどこにでも届く状態は変わりません。',
           style: TextStyle(fontSize: 12, color: Colors.grey),
         ),
+        const SizedBox(height: 4),
+        Text(
+          '縦向きと横向きで別々に覚えます'
+          '（いま設定しているのは'
+          '${displayPreferences.orientation == Orientation.portrait ? '縦' : '横'}'
+          '向きです）。同じ値を使い回すと、回したときに'
+          '避けたかった場所とは違うところが削られてしまうためです。',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 12),
+
+        // 数字だけで合わせるのは難しい。映像を見ながら動かせるようにする。
+        if (widget.onExit != null)
+          OutlinedButton.icon(
+            icon: const Icon(Icons.crop_free),
+            label: const Text('映像を見ながら調整する'),
+            onPressed: () => Navigator.of(context).pop(true),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+            ),
+          ),
         const SizedBox(height: 12),
 
         _buildInsetSlider(

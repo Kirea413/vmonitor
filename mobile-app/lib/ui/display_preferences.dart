@@ -61,6 +61,13 @@ enum DisconnectGesture {
 ///
 /// 端末ごとの都合なので PC 側へは送らず、この端末に保存する。
 class DisplayPreferences extends ChangeNotifier {
+  /// 向きごとの余白を保存する鍵の頭。
+  static String _insetPrefix(Orientation orientation) =>
+      orientation == Orientation.portrait
+          ? 'display.inset.portrait'
+          : 'display.inset.landscape';
+
+  // 向きで分ける前の鍵。読み込みのときだけ見る（引き継ぎ用）。
   static const String _keyInsetTop    = 'display.inset.top';
   static const String _keyInsetBottom = 'display.inset.bottom';
   static const String _keyInsetLeft   = 'display.inset.left';
@@ -76,10 +83,25 @@ class DisplayPreferences extends ChangeNotifier {
   /// 余白の上限。これ以上狭めると映像が小さくなりすぎる。
   static const double maxInset = 80;
 
-  double _top    = 0;
-  double _bottom = 0;
-  double _left   = 0;
-  double _right  = 0;
+  // 余白は画面の向きごとに別々に覚える。
+  //
+  // 1 組だけだと、縦で「下を空ける」と決めた値が、横にした瞬間
+  // 画面の下辺（物理的には横っ腹）に付いてしまう。避けたかった
+  // ホームバーや丸い角は別の場所へ移っているので、まったく的外れな
+  // ところが削られる。
+  //
+  // 向きごとに持てば、それぞれの向きで一度合わせるだけで、
+  // 以後は回しても正しい場所に付く。
+  final Map<Orientation, EdgeInsets> _insets = {
+    Orientation.portrait:  EdgeInsets.zero,
+    Orientation.landscape: EdgeInsets.zero,
+  };
+
+  /// いま画面がどちらを向いているか。
+  ///
+  /// 余白を読むときの既定として使う。映像画面が向きの変化に合わせて
+  /// 更新する。
+  Orientation _orientation = Orientation.portrait;
 
   bool _showDebugOverlay   = false;
   bool _showSettingsButton = true;
@@ -97,12 +119,29 @@ class DisplayPreferences extends ChangeNotifier {
   ///
   /// 映像そのものを内側に寄せるので、PC 画面のどこにでも触れる状態は保たれる。
   /// 触れる範囲だけ狭めると、PC 画面の端に永遠に届かなくなってしまう。
-  EdgeInsets get insets => EdgeInsets.fromLTRB(_left, _top, _right, _bottom);
+  EdgeInsets get insets => insetsFor(_orientation);
 
-  double get top    => _top;
-  double get bottom => _bottom;
-  double get left   => _left;
-  double get right  => _right;
+  /// 指定した向きの余白。
+  EdgeInsets insetsFor(Orientation orientation) =>
+      _insets[orientation] ?? EdgeInsets.zero;
+
+  /// いま基準にしている向き。
+  Orientation get orientation => _orientation;
+
+  /// 画面の向きが変わったことを伝える。
+  ///
+  /// 変わっていなければ何もしない（毎フレーム呼ばれても平気にしておく）。
+  void setOrientation(Orientation value) {
+    if (_orientation == value) return;
+
+    _orientation = value;
+    notifyListeners();
+  }
+
+  double get top    => insets.top;
+  double get bottom => insets.bottom;
+  double get left   => insets.left;
+  double get right  => insets.right;
 
   /// 受信状況などの数字を画面に出すか。
   bool get showDebugOverlay => _showDebugOverlay;
@@ -190,10 +229,37 @@ class DisplayPreferences extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      _top    = prefs.getDouble(_keyInsetTop)    ?? 0;
-      _bottom = prefs.getDouble(_keyInsetBottom) ?? 0;
-      _left   = prefs.getDouble(_keyInsetLeft)   ?? 0;
-      _right  = prefs.getDouble(_keyInsetRight)  ?? 0;
+      // 向きごとに分ける前の設定。縦向きのものとして引き継ぐ。
+      // 何も無ければ 0。
+      final legacy = EdgeInsets.fromLTRB(
+        prefs.getDouble(_keyInsetLeft)   ?? 0,
+        prefs.getDouble(_keyInsetTop)    ?? 0,
+        prefs.getDouble(_keyInsetRight)  ?? 0,
+        prefs.getDouble(_keyInsetBottom) ?? 0,
+      );
+
+      for (final orientation in Orientation.values) {
+        final prefix = _insetPrefix(orientation);
+
+        final stored = EdgeInsets.fromLTRB(
+          prefs.getDouble('$prefix.left')   ?? -1,
+          prefs.getDouble('$prefix.top')    ?? -1,
+          prefs.getDouble('$prefix.right')  ?? -1,
+          prefs.getDouble('$prefix.bottom') ?? -1,
+        );
+
+        // -1 は「保存されていない」の印。まだ分けて保存していない場合は
+        // 古い値をそのまま使う（縦で合わせた値を横にも一旦入れておく。
+        // 合わなければ画面を見ながら直せる）。
+        _insets[orientation] = stored.left < 0
+            ? legacy
+            : EdgeInsets.fromLTRB(
+                stored.left.clamp(0.0, maxInset),
+                stored.top.clamp(0.0, maxInset),
+                stored.right.clamp(0.0, maxInset),
+                stored.bottom.clamp(0.0, maxInset),
+              );
+      }
 
       _showDebugOverlay   = prefs.getBool(_keyShowDebug)  ?? false;
       _showSettingsButton = prefs.getBool(_keyShowButton) ?? true;
@@ -221,16 +287,31 @@ class DisplayPreferences extends ChangeNotifier {
     }
   }
 
+  /// いまの向きの余白を変える。
   Future<void> setInsets({
     double? top,
     double? bottom,
     double? left,
     double? right,
+    Orientation? orientation,
   }) async {
-    _top    = (top    ?? _top).clamp(0.0, maxInset);
-    _bottom = (bottom ?? _bottom).clamp(0.0, maxInset);
-    _left   = (left   ?? _left).clamp(0.0, maxInset);
-    _right  = (right  ?? _right).clamp(0.0, maxInset);
+    final target  = orientation ?? _orientation;
+    final current = insetsFor(target);
+
+    _insets[target] = EdgeInsets.fromLTRB(
+      (left   ?? current.left).clamp(0.0, maxInset),
+      (top    ?? current.top).clamp(0.0, maxInset),
+      (right  ?? current.right).clamp(0.0, maxInset),
+      (bottom ?? current.bottom).clamp(0.0, maxInset),
+    );
+
+    notifyListeners();
+    await _save();
+  }
+
+  /// いまの向きの余白をすべて 0 に戻す。
+  Future<void> clearInsets({Orientation? orientation}) async {
+    _insets[orientation ?? _orientation] = EdgeInsets.zero;
 
     notifyListeners();
     await _save();
@@ -252,10 +333,15 @@ class DisplayPreferences extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      await prefs.setDouble(_keyInsetTop,    _top);
-      await prefs.setDouble(_keyInsetBottom, _bottom);
-      await prefs.setDouble(_keyInsetLeft,   _left);
-      await prefs.setDouble(_keyInsetRight,  _right);
+      for (final orientation in Orientation.values) {
+        final prefix = _insetPrefix(orientation);
+        final value  = insetsFor(orientation);
+
+        await prefs.setDouble('$prefix.left',   value.left);
+        await prefs.setDouble('$prefix.top',    value.top);
+        await prefs.setDouble('$prefix.right',  value.right);
+        await prefs.setDouble('$prefix.bottom', value.bottom);
+      }
       await prefs.setBool(_keyShowDebug,     _showDebugOverlay);
       await prefs.setBool(_keyShowButton,    _showSettingsButton);
       await prefs.setInt(_keyGesture,        _disconnectGesture.index);

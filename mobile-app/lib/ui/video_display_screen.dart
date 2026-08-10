@@ -311,9 +311,131 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
     }
   }
 
-  void _openSettings() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  // ── 余白を画面の上で調整する ──────────────────────────────────
+
+  /// 余白の調整中か。
+  ///
+  /// この間は PC への送信を止め、削っている範囲を帯で見せる。
+  bool _adjustingInsets = false;
+
+  /// 削られている範囲を帯で示す。
+  ///
+  /// 数字だけで合わせるのは難しい。角の丸みやホームバーを避けたいのに、
+  /// 実際どこまで削れたのかが見えないと、行き過ぎたか足りないかが
+  /// 分からない。
+  List<Widget> _buildInsetGuides() {
+    final insets = displayPreferences.insets;
+    const color  = Color(0x552563EB);
+
+    return [
+      if (insets.top > 0)
+        Positioned(top: 0, left: 0, right: 0,
+            child: Container(height: insets.top, color: color)),
+      if (insets.bottom > 0)
+        Positioned(bottom: 0, left: 0, right: 0,
+            child: Container(height: insets.bottom, color: color)),
+      if (insets.left > 0)
+        Positioned(top: 0, bottom: 0, left: 0,
+            child: Container(width: insets.left, color: color)),
+      if (insets.right > 0)
+        Positioned(top: 0, bottom: 0, right: 0,
+            child: Container(width: insets.right, color: color)),
+    ];
+  }
+
+  Widget _buildInsetEditor() {
+    final insets  = displayPreferences.insets;
+    final portrait = displayPreferences.orientation == Orientation.portrait;
+
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: 24,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.82),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.crop_free, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    // どちらの向きを触っているのかを明示する。
+                    // 向きごとに別々に覚えるので、これが無いと
+                    // 「さっき直したのに戻っている」と見える。
+                    portrait ? '余白を調整（縦向き）' : '余白を調整（横向き）',
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => displayPreferences.clearInsets(),
+                  child: const Text('リセット'),
+                ),
+                FilledButton(
+                  onPressed: () => setState(() => _adjustingInsets = false),
+                  child: const Text('完了'),
+                ),
+              ],
+            ),
+            _buildEditorSlider('上', insets.top,
+                (v) => displayPreferences.setInsets(top: v)),
+            _buildEditorSlider('下', insets.bottom,
+                (v) => displayPreferences.setInsets(bottom: v)),
+            _buildEditorSlider('左', insets.left,
+                (v) => displayPreferences.setInsets(left: v)),
+            _buildEditorSlider('右', insets.right,
+                (v) => displayPreferences.setInsets(right: v)),
+            const Text(
+              '縦と横で別々に覚えます。回しても付ける場所がずれません。',
+              style: TextStyle(color: Colors.white70, fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditorSlider(
+      String label, double value, ValueChanged<double> onChanged) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 20,
+          child: Text(label,
+              style: const TextStyle(color: Colors.white, fontSize: 12)),
+        ),
+        Expanded(
+          child: Slider(
+            value: value,
+            min: 0,
+            max: DisplayPreferences.maxInset,
+            divisions: DisplayPreferences.maxInset.round(),
+            label: value.round().toString(),
+            onChanged: onChanged,
+          ),
+        ),
+        SizedBox(
+          width: 28,
+          child: Text(
+            value.round().toString(),
+            textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openSettings() async {
+    // 設定画面から「画面を見ながら調整」を選んだかどうかを受け取る。
+    final adjust = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (_) => SettingsScreen(
           transport: widget.transport,
           // 設定画面ごと閉じてから映像画面を閉じる。
@@ -326,6 +448,9 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
         ),
       ),
     );
+
+    if (!mounted) return;
+    if (adjust == true) setState(() => _adjustingInsets = true);
   }
 
   /// 切断してよいか尋ねる。
@@ -399,6 +524,10 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 余白は向きごとに別々に覚えている。いまどちらを向いているかを
+    // 伝えて、対応するほうを使わせる。
+    displayPreferences.setOrientation(MediaQuery.of(context).orientation);
+
     return Scaffold(
       backgroundColor: Colors.black,
       // 設定ボタンは映像の上に重ねる。
@@ -483,23 +612,33 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
             // 寄せた範囲がそのまま PC 画面全体に対応する。
             Padding(
               padding: displayPreferences.insets,
-              child: touch.TouchInputView(
-                proxy: _touchProxy,
-                // 3 本指で下へ払うと切断。
-                // 画面いっぱいが PC の入力面なので、ボタンを置くと必ず邪魔になる。
-                onDisconnectGesture: _confirmDisconnect,
-                gesture: displayPreferences.disconnectGesture,
-                child: RendererView(
-                  encodedFrames: _videoStreamController!.stream,
-                  placeholder: const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
+              child: AbsorbPointer(
+                // 余白を調整している間は PC へ触らせない。
+                // スライダーを動かすたびに PC 側で線が引かれては困る。
+                absorbing: _adjustingInsets,
+                child: touch.TouchInputView(
+                  proxy: _touchProxy,
+                  // 3 本指で下へ払うと切断。
+                  // 画面いっぱいが PC の入力面なので、ボタンを置くと必ず邪魔になる。
+                  onDisconnectGesture: _confirmDisconnect,
+                  gesture: displayPreferences.disconnectGesture,
+                  child: RendererView(
+                    encodedFrames: _videoStreamController!.stream,
+                    placeholder: const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    ),
+                    // USB 接続では映像が Dart を経由しないので、
+                    // 映っているかどうかはデコーダーの状況でしか分からない。
+                    onStats: _onRendererStats,
                   ),
-                  // USB 接続では映像が Dart を経由しないので、
-                  // 映っているかどうかはデコーダーの状況でしか分からない。
-                  onStats: _onRendererStats,
                 ),
               ),
             ),
+
+            // 余白の調整中は、削っている範囲を見せる。
+            // 数字だけで合わせるのは無理があるので、映像の上で直接見る。
+            if (_adjustingInsets) ..._buildInsetGuides(),
+            if (_adjustingInsets) _buildInsetEditor(),
 
             // 切り分け用の情報。表示するかどうかは設定だけで決まる。
             if (displayPreferences.showDebugOverlay)
