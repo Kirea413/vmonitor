@@ -26,6 +26,38 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+
+	<!--
+	  ローカルネットワークの利用許可。
+
+	  iOS 14 以降、同じ LAN の相手と通信するには利用者の許可が要る。
+	  この説明文が無いと許可を求めることすらできず、通信は黙って
+	  失敗する。エラーも出ないので、原因が分からないまま
+	  「PC が見つからない」という症状だけが残る。
+
+	  vmonitor は Wi-Fi 接続でしか iOS を使えない（USB 直結は
+	  Android 専用の仕組み）。つまりこれが無いと何もできない。
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>同じ Wi-Fi にある PC を探して、画面を受け取るために使います。インターネットへは接続しません。</string>
+
+	<!--
+	  Bonjour (mDNS) で探すサービスの種別。
+
+	  ここに書いていない種別は、許可を得ていても探索できない。
+	  PC 側 (MdnsService.ServiceType) と綴りを揃えること。
+	-->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_vmonitor._tcp</string>
+	</array>
+
+	<!--
+	  独自の暗号を実装していないことの申告。
+	  書いておかないと、提出のたびに輸出規制の質問に答えることになる。
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

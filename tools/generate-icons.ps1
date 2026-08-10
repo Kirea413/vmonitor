@@ -101,6 +101,48 @@ function New-IconBitmap([int]$size, [bool]$withPlate = $true) {
     return $bmp
 }
 
+<#
+.SYNOPSIS
+    iOS 用に 1 枚描く。
+
+    Android 用との違いは 2 点だけ。透過を残さないことと、
+    角を丸めないこと。どちらも iOS 側の決まりによる
+    （角丸は OS が付けるので、こちらで付けると二重になる）。
+#>
+function New-IosIconBitmap([int]$size) {
+    $bmp = New-Object System.Drawing.Bitmap($size, $size,
+        [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode     = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+
+    # 隅まで塗りつぶす。透過は 1 ピクセルも残さない。
+    $g.Clear($Plate)
+
+    # OS が角を切り落とすぶん、絵柄を内側へ寄せる。
+    # 寄せないと、スマホの角が丸みに削られる。
+    $inset = $size * 0.12
+    $k     = ($size - $inset * 2) / 64.0
+
+    function FillIos([double]$x, [double]$y, [double]$w, [double]$h, [double]$r, $color) {
+        $path  = New-RoundedPath ($inset + $x * $k) ($inset + $y * $k) ($w * $k) ($h * $k) ($r * $k)
+        $brush = New-Object System.Drawing.SolidBrush($color)
+        $g.FillPath($brush, $path)
+        $brush.Dispose(); $path.Dispose()
+    }
+
+    # 絵柄は Android 用と揃える（PC の画面 + スマホ）
+    FillIos 2 12 38 27 3.5 $Accent
+
+    FillIos 36 20 26 38 6 $Ink
+    FillIos 40 24 18 30 3 $Plate
+    FillIos 43 28 12 22 2 $Accent
+
+    $g.Dispose()
+    return $bmp
+}
+
 # ── Android ────────────────────────────────────────────────────────────
 Write-Host '==> Android のアイコンを書き出しています...' -ForegroundColor Cyan
 
@@ -130,6 +172,50 @@ $storePath = Join-Path $IconDir 'playstore-512.png'
 $store.Save($storePath, [System.Drawing.Imaging.ImageFormat]::Png)
 $store.Dispose()
 Write-Host "    playstore-512.png"
+
+# ── iOS ────────────────────────────────────────────────────────────────
+#
+# iOS のアイコンには 2 つ決まりがある。
+#
+#   1. 透過を含めてはいけない。App Store は弾くし、端末上でも
+#      背景が抜けて汚く見える。
+#   2. 角丸を自分で付けてはいけない。OS が同じ形に切り抜くので、
+#      付けると二重に丸まって縁が痩せる。
+#
+# つまり「隅まで塗った、角の立った正方形」を出す。
+# Android 用とは別に描き直す必要があり、流用はできない。
+Write-Host ''
+Write-Host '==> iOS のアイコンを書き出しています...' -ForegroundColor Cyan
+
+$AppIconDir = Join-Path $Root 'mobile-app\ios\Runner\Assets.xcassets\AppIcon.appiconset'
+
+if (-not (Test-Path $AppIconDir)) {
+    Write-Host "    見つかりません: $AppIconDir" -ForegroundColor Yellow
+} else {
+    # 必要な寸法は Contents.json が持っている。
+    # ここに書き写すと、Xcode 側の更新に追従できず食い違う。
+    $contents = Get-Content (Join-Path $AppIconDir 'Contents.json') -Raw | ConvertFrom-Json
+
+    $wanted = @{}   # ファイル名 → ピクセル数
+
+    foreach ($image in $contents.images) {
+        if (-not $image.filename) { continue }
+
+        $base  = [double]($image.size -split 'x')[0]
+        $scale = [double]($image.scale -replace 'x', '')
+
+        $wanted[$image.filename] = [int][Math]::Round($base * $scale)
+    }
+
+    foreach ($entry in $wanted.GetEnumerator() | Sort-Object Value) {
+        $bmp = New-IosIconBitmap $entry.Value
+        $bmp.Save((Join-Path $AppIconDir $entry.Key),
+                  [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Dispose()
+
+        Write-Host ("    {0,-32} {1}px" -f $entry.Key, $entry.Value)
+    }
+}
 
 # ── Windows (.ico) ─────────────────────────────────────────────────────
 #
