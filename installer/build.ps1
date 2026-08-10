@@ -134,9 +134,13 @@ Write-Step 'PC アプリを発行しています（自己完結）...'
 if (Test-Path $PayloadDir) { Remove-Item $PayloadDir -Recurse -Force }
 New-Item -ItemType Directory -Path $AppStageDir -Force | Out-Null
 
+# SatelliteResourceLanguages: .NET が持っている 13 か国語ぶんの
+# 翻訳リソースを削る。中身は例外メッセージなどで、日本語の UI しか
+# 出さないこのアプリでは使われない。それだけで 15 MB ある。
 & dotnet publish (Join-Path $PcClientDir 'VMonitor.UI\VMonitor.UI.csproj') `
     -c Release -r win-x64 --self-contained true `
     -p:DebugType=None -p:DebugSymbols=false `
+    -p:SatelliteResourceLanguages=ja `
     -o $AppStageDir --nologo -v q
 
 if ($LASTEXITCODE -ne 0) { throw 'PC アプリの発行に失敗しました。' }

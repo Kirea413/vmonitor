@@ -18,9 +18,18 @@
     <None Update="Resources\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="driver\**">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <!--
+      driver\** は同梱しない。
+
+      Program.cs は「exe の隣に driver フォルダがあればそちらを優先」する。
+      ここで拾うようにしていたため、ソース中に置き忘れた古い一式が
+      ビルドのたびに出力へ運ばれ、それが入ってしまう余地があった。
+      実際 7 月 7 日のドライバが 1 か月以上残っていた。
+
+      配布時のドライバは Inno Setup が driver\dist から {app}\driver へ置く。
+      開発中に単体で使いたい場合は、exe の隣に自分で置けば今も拾われる。
+    -->
+    <None Remove="driver\**" />
   </ItemGroup>
 
 </Project>
