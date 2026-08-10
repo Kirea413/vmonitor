@@ -1,4 +1,4 @@
-package com.example.vmonitor
+package com.kirea.vmonitor
 
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity

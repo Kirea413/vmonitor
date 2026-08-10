@@ -1,4 +1,4 @@
-package com.example.vmonitor
+package com.kirea.vmonitor
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo

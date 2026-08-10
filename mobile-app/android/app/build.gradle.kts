@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.vmonitor"
+    namespace = "com.kirea.vmonitor"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,10 +20,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.vmonitor"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // 端末上でアプリを識別する名前。一度配布したら変えられない
+        // （変えると別のアプリ扱いになり、更新ではなく新規インストールになる）。
+        applicationId = "com.kirea.vmonitor"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

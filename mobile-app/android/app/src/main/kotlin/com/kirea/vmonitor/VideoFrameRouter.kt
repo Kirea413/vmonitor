@@ -1,4 +1,4 @@
-package com.example.vmonitor
+package com.kirea.vmonitor
 
 import java.util.concurrent.atomic.AtomicLong
 

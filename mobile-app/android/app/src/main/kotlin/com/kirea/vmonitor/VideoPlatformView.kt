@@ -1,4 +1,4 @@
-package com.example.vmonitor
+package com.kirea.vmonitor
 
 import android.content.Context
 import android.view.Surface

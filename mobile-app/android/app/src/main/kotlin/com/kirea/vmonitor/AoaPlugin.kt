@@ -1,4 +1,4 @@
-package com.example.vmonitor
+package com.kirea.vmonitor
 
 import android.app.Activity
 import android.app.PendingIntent
@@ -395,7 +395,7 @@ class AoaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
         const val FRAME_CHANNEL = "vmonitor/aoa/frames"
         const val STATE_CHANNEL = "vmonitor/aoa/state"
 
-        private const val ACTION_USB_PERMISSION = "com.example.vmonitor.USB_PERMISSION"
+        private const val ACTION_USB_PERMISSION = "com.kirea.vmonitor.USB_PERMISSION"
     }
 }
 
