@@ -130,8 +130,9 @@ class RendererSession: NSObject {
     let textureId: Int64
 
     private let textureEntry: FlutterTextureRegistry
-    private var pixelBuffer: CVPixelBuffer?
-    private let pixelBufferLock = NSLock()
+    // 絵の置き場は VMonitorTexture が持つ。
+    // ここにも同じものを抱えていたが、Flutter が読むのは向こうなので
+    // 誰にも使われないまま「入れてあるのに映らない」原因になっていた。
     private var decompressionSession: VTDecompressionSession?
     private var formatDescription: CMVideoFormatDescription?
     private let flutterTexture: VMonitorTexture
@@ -158,6 +159,15 @@ class RendererSession: NSObject {
 
     func release() {
         if let session = decompressionSession {
+            // 処理中のフレームを先に吐き出させる。
+            //
+            // 非同期でデコードさせているので、Invalidate だけでは
+            // まだ途中のものが残る。コールバックには自分を
+            // passUnretained で渡してあり、片付けたあとに呼ばれると
+            // 消えた相手を触ることになる。deinit からも来る経路なので、
+            // そのときは既に解放が始まっている。
+            VTDecompressionSessionWaitForAsynchronousFrames(session)
+
             VTDecompressionSessionInvalidate(session)
             decompressionSession = nil
         }
@@ -418,11 +428,16 @@ class RendererSession: NSObject {
     }
 
     func onDecodedFrame(imageBuffer: CVImageBuffer) {
-        pixelBufferLock.lock()
-        pixelBuffer = imageBuffer as? CVPixelBuffer
-        pixelBufferLock.unlock()
+        // デコードできた絵を、Flutter が読みに来る先へ渡す。
+        //
+        // ここが抜けていた。以前は RendererSession 自身の変数へ入れて
+        // いたが、Flutter が呼ぶのは VMonitorTexture.copyPixelBuffer の
+        // ほうで、そちらは何も渡されないまま常に nil を返していた。
+        // デコードも通知も動いているのに、画面だけ真っ暗になっていた。
+        flutterTexture.update(pixelBuffer: imageBuffer)
 
-        // Flutter エンジンにテクスチャの更新を通知する
+        // 新しい絵があることをエンジンに伝える。
+        // これを呼ばないと copyPixelBuffer は読みに来ない。
         textureEntry.textureFrameAvailable(textureId)
     }
 
