@@ -68,9 +68,35 @@ aapt2 dump badging app-release.apk
 
 ### iOS について
 
-`ios/` に一式は入っていますが（デプロイ先 iOS 13.0）、ビルドも動作確認も
-していません。USB 直結は Android 専用の仕組みなので、iOS では Wi-Fi のみに
-なります。現時点では対応端末として数えないでください。
+デプロイ先は **iOS 13.0** です。ビルドは GitHub Actions の macOS ランナーで
+行い、無署名の IPA をリリースに置いています（`.github/workflows/ios-unsigned-ipa.yml`）。
+Mac は要りません。
+
+> **動作確認はしていません。** 通っているのはビルドまでで、実機にも
+> シミュレーターにも入れていません。起動するかどうかも分かりません。
+
+| 機能 | Android | iOS |
+|---|:-:|:-:|
+| Wi-Fi 接続 | ✅ | ⚠️ 実装あり・未検証 |
+| USB 直結 (AOA) | ✅ | ❌ 非対応 |
+| 映像のデコード・表示 | ✅ | ⚠️ 実装あり・未検証 |
+| タッチを PC へ送る | ✅ | ⚠️ 実装あり・未検証 |
+| 画面を消させない / 明るさ固定 | ✅ | ⚠️ 実装あり・未検証 |
+
+実装上の違いが 3 点あります。
+
+- **USB 直結は iOS では原理的にできません。** Android Open Accessory は
+  Android 専用の仕組みです
+- **映像の経路が違います。** Android はネイティブのビューへ直接描きますが
+  ([renderer_view.dart](mobile-app/lib/renderer/renderer_view.dart) の `_useNativeView`)、
+  iOS は Flutter のテクスチャを経由します。この経路は Android で計測したとき
+  235〜278ms の遅れがありました。iOS のほうが遅いはずです
+- **明るさ固定の効き方が違います。** Android はウィンドウ属性なので表示中
+  だけ効きますが、iOS の `UIScreen.brightness` は端末全体の設定を書き換えます。
+  元の値へ戻すようにしていますが、強制終了された場合は変わったままです
+
+無署名 IPA はそのままでは端末に入りません。Sideloadly や AltStore で
+自分の証明書を付ける必要があります。
 
 ---
 
