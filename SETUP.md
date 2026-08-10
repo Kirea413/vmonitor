@@ -8,11 +8,37 @@
 
 | 項目 | 要件 |
 |---|---|
-| PC | Windows 10 (2004以降) または Windows 11 |
+| PC | **Windows 10 バージョン 1809 (build 17763) 以上**、または Windows 11 |
 | スマートフォン | **Android 7.0 (Nougat / API 24) 以上** |
 | 接続方法 | 同一 Wi-Fi ネットワーク、または USB ケーブル |
 | 開発環境（ビルドする場合） | .NET 8 SDK、Flutter 3.10+、Visual Studio 2022+（C++ デスクトップ開発） |
 | 開発環境（拡張モードを使う場合） | 上記に加えて Windows Driver Kit (WDK) |
+
+### Windows のバージョンについて
+
+下限を決めているのは次の 2 つです。使っている API の公式な要件から出しています。
+
+| 使うもの | 下限 | 効かないと |
+|---|---|---|
+| 仮想ディスプレイドライバ (IddCx 1.2) | Windows 10 1709 / build 16299 | 拡張モードが使えない（ミラーは可） |
+| Windows Ink のペン注入 (`CreateSyntheticPointerDevice`) | Windows 10 1809 / build 17763 | ペンだけ使えない（タッチは可） |
+| .NET 8 | Windows 10 1607 | アプリが起動しない |
+
+厳しいほうに合わせて **1809 (17763)** としています。
+
+INF の `UmdfExtensions = IddCx0102` が IddCx 1.2 を指しており、
+IddCx 1.2 は Windows 10 1709 (build 16299) から入っています。
+
+1809 未満の環境ではペンの初期化が空振りしますが、そこで止まらずタッチへ
+落ちるようにしてあります。自分の Windows のビルド番号は次で分かります。
+
+```bash
+winver
+```
+
+> **実機で確かめたのは Windows 11 (build 26200) の 1 台だけ**です。
+> Windows 10 では動かしていません。上の表は API の要件であって、
+> 動作確認の結果ではありません。
 
 ### Android のバージョンについて
 

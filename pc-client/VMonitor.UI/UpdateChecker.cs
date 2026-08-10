@@ -38,8 +38,19 @@ public sealed class UpdateChecker
     public const string Owner = "Kirea413";
     public const string Repo  = "vmonitor";
 
-    private const string LatestReleaseUrl =
-        $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
+    /// <summary>公開済みリリースの一覧（新しい順）。</summary>
+    /// <remarks>
+    /// <para>
+    /// releases/latest は使えない。あの API は事前公開版 (pre-release) を
+    /// 返さない。今の vmonitor は beta として出しているため、
+    /// latest を見ていると自分より新しい beta が出ても永久に気付けない。
+    /// </para>
+    /// <para>
+    /// 一覧を取って、この版より新しいものを自分で選ぶ。下書きは除く。
+    /// </para>
+    /// </remarks>
+    private const string ReleaseListUrl =
+        $"https://api.github.com/repos/{Owner}/{Repo}/releases?per_page=20";
 
     /// <summary>この Releases のページ（利用者に見せる用）。</summary>
     public const string ReleasesPageUrl =
@@ -73,41 +84,28 @@ public sealed class UpdateChecker
     {
         try
         {
-            using var response = await _http.GetAsync(LatestReleaseUrl, ct);
+            using var response = await _http.GetAsync(ReleaseListUrl, ct);
 
             if (!response.IsSuccessStatusCode) return null;
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
 
-            var root = document.RootElement;
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return null;
 
-            // 下書きや事前公開版は拾わない
-            if (root.TryGetProperty("draft", out var draft) && draft.GetBoolean()) return null;
-            if (root.TryGetProperty("prerelease", out var pre) && pre.GetBoolean()) return null;
+            // 並び順は GitHub 任せにしない。一番バージョンが大きいものを選ぶ。
+            AvailableUpdate? best = null;
 
-            if (!root.TryGetProperty("tag_name", out var tag)) return null;
+            foreach (var release in document.RootElement.EnumerateArray())
+            {
+                var candidate = ReadRelease(release);
+                if (candidate is null) continue;
 
-            var tagName = tag.GetString();
-            if (string.IsNullOrWhiteSpace(tagName)) return null;
+                if (best is null || candidate.Version > best.Version)
+                    best = candidate;
+            }
 
-            var version = ParseVersion(tagName);
-            if (version is null) return null;
-            if (version <= _currentVersion) return null;
-
-            var asset = FindInstallerAsset(root);
-            if (asset is null) return null;
-
-            var notes = root.TryGetProperty("body", out var body)
-                ? body.GetString() ?? string.Empty
-                : string.Empty;
-
-            return new AvailableUpdate(
-                Version:     version,
-                TagName:     tagName,
-                DownloadUrl: asset.Value.Url,
-                SizeBytes:   asset.Value.Size,
-                Notes:       notes.Trim());
+            return best;
         }
         catch
         {
@@ -115,6 +113,46 @@ public sealed class UpdateChecker
             // 分からないなら「新版なし」として扱う。
             return null;
         }
+    }
+
+    /// <summary>
+    /// リリース 1 件を読む。使えないものは null。
+    /// </summary>
+    /// <remarks>
+    /// 事前公開版 (pre-release) は弾かない。今の vmonitor は beta として
+    /// 出しているので、弾くと後継の beta に一生上がれない。
+    /// 下書きだけは、まだ公開する気が無いものなので除く。
+    /// </remarks>
+    private AvailableUpdate? ReadRelease(JsonElement release)
+    {
+        if (release.ValueKind != JsonValueKind.Object) return null;
+
+        if (release.TryGetProperty("draft", out var draft) &&
+            draft.ValueKind == JsonValueKind.True) return null;
+
+        if (!release.TryGetProperty("tag_name", out var tag)) return null;
+
+        var tagName = tag.GetString();
+        if (string.IsNullOrWhiteSpace(tagName)) return null;
+
+        var version = ParseVersion(tagName);
+        if (version is null) return null;
+        if (version <= _currentVersion) return null;
+
+        // インストーラーが付いていないリリースは案内しても仕方がない
+        var asset = FindInstallerAsset(release);
+        if (asset is null) return null;
+
+        var notes = release.TryGetProperty("body", out var body)
+            ? body.GetString() ?? string.Empty
+            : string.Empty;
+
+        return new AvailableUpdate(
+            Version:     version,
+            TagName:     tagName,
+            DownloadUrl: asset.Value.Url,
+            SizeBytes:   asset.Value.Size,
+            Notes:       notes.Trim());
     }
 
     /// <summary>

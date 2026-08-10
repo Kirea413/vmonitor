@@ -127,7 +127,28 @@ public sealed class Win32PointerInjectionBackend : IPointerInjectionBackend
         // ペンは同時に 1 本しか存在しないため maxCount は 1 に丸める
         _ = maxContacts;
 
-        var device = CreateSyntheticPointerDevice(PT_PEN, 1, POINTER_FEEDBACK_DEFAULT);
+        IntPtr device;
+
+        try
+        {
+            device = CreateSyntheticPointerDevice(PT_PEN, 1, POINTER_FEEDBACK_DEFAULT);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Windows 10 1809 より前には、この関数が user32.dll に無い。
+            //
+            // 呼ぶと戻り値ではなく例外で失敗するため、ここで受けないと
+            // 「ペンは使えません」ではなく異常終了になる。タッチのほうは
+            // Windows 8 から在るので、ペンだけ諦めれば操作は成立する。
+            LastError = 0;
+            return false;
+        }
+        catch (DllNotFoundException)
+        {
+            LastError = 0;
+            return false;
+        }
+
         if (device == IntPtr.Zero)
         {
             LastError = Marshal.GetLastWin32Error();
