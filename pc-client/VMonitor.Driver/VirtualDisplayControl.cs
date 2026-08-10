@@ -42,8 +42,20 @@ public sealed class VirtualDisplayControl : IDisposable
     private const uint OpConnect    = 1;
     private const uint OpDisconnect = 2;
     private const uint OpGetState   = 3;
+    private const uint OpKeepAlive  = 4;
 
     private bool _disposed;
+
+    /// <summary>
+    /// ドライバへ「まだ生きている」ことを示すための、繋ぎっぱなしの接続。
+    /// </summary>
+    /// <remarks>
+    /// 強制終了されると、こちらのコードは一切動かない。後始末を頼む
+    /// 手立てが無いので、モニターが出たまま残る。
+    /// この接続だけは OS が閉じてくれるため、ドライバはそれを見て
+    /// 自分でモニターを外せる。
+    /// </remarks>
+    private NamedPipeClientStream? _keepAlive;
 
     /// <summary>直近の操作でドライバに届かなかった場合の理由。</summary>
     public string? LastError { get; private set; }
@@ -75,6 +87,8 @@ public sealed class VirtualDisplayControl : IDisposable
 
         if (response is not { Succeeded: not 0 })
             return false;
+
+        OpenKeepAlive();
 
         // モニターが到着しただけでは画面数は増えない。
         // デスクトップの構成に「拡張」として組み込むところまで行う。
@@ -112,8 +126,64 @@ public sealed class VirtualDisplayControl : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        // 見張りを先に畳む。残したままだと、ドライバ側が切断の直後に
+        // 「持ち主が死んだ」と受け取って二重に外しにくる。
+        CloseKeepAlive();
+
         var response = Send(OpDisconnect, 0, 0, 0);
         return response is { Succeeded: not 0 };
+    }
+
+    // ── 死活の見張り ─────────────────────────────────────────────────────
+
+    /// <summary>ドライバへ繋ぎっぱなしの接続を 1 本張る。</summary>
+    /// <remarks>
+    /// 張れなくてもモニター自体は使える。強制終了への備えが無くなるだけ
+    /// なので、失敗しても接続の成否には響かせない。
+    /// </remarks>
+    private void OpenKeepAlive()
+    {
+        CloseKeepAlive();
+
+        try
+        {
+            var pipe = new NamedPipeClientStream(
+                ".", PipeName, PipeDirection.InOut, PipeOptions.None);
+
+            pipe.Connect(ConnectTimeoutMs);
+            pipe.ReadMode = PipeTransmissionMode.Message;
+
+            pipe.Write(ToBytes(new Command
+            {
+                Operation      = OpKeepAlive,
+                OwnerProcessId = (uint)Environment.ProcessId,
+            }));
+            pipe.Flush();
+
+            // 引き取れたという返事を確かめてから握り続ける
+            var buffer = new byte[Marshal.SizeOf<Response>()];
+
+            if (pipe.Read(buffer, 0, buffer.Length) != buffer.Length)
+            {
+                pipe.Dispose();
+                return;
+            }
+
+            _keepAlive = pipe;
+        }
+        catch (Exception)
+        {
+            _keepAlive = null;
+        }
+    }
+
+    /// <summary>見張りの接続を閉じる。</summary>
+    private void CloseKeepAlive()
+    {
+        var pipe = _keepAlive;
+        _keepAlive = null;
+
+        try { pipe?.Dispose(); } catch { /* 既に切れていることがある */ }
     }
 
     /// <summary>現在の接続状態を取得する。</summary>
@@ -221,10 +291,17 @@ public sealed class VirtualDisplayControl : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+
+        // 接続したままアプリが終わると、モニターが出たまま残ってしまう。
+        //
+        // 印を立てるのは切断を済ませてから。先に立てると Disconnect が
+        // 自分で ObjectDisposedException を投げて即座に抜けてしまい、
+        // ここは何もしないまま終わる。実際それでモニターが残っていた。
+        try { Disconnect(); } catch { /* 後始末は best-effort */ }
+
         _disposed = true;
 
-        // 接続したままアプリが終わると、モニターが出たまま残ってしまう
-        try { Disconnect(); } catch { /* 後始末は best-effort */ }
+        CloseKeepAlive();
     }
 
     // ── ドライバと共有する構造体 ─────────────────────────────────────────

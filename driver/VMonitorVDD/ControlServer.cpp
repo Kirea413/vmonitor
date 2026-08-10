@@ -29,6 +29,93 @@ namespace VMonitorControl
 
     static bool DisconnectMonitor();          // 前方宣言
 
+    // ─────────────────────────────────────────────────────────────────────
+    // 繋ぎっぱなしの接続で持ち主を見張る
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // 上の OpenProcess 方式は、実機では一度も働かなかった。
+    // ログに毎回 "could not open owner process" が出る。ドライバは
+    // WUDFHost.exe の中で LocalService として動くので、利用者の権限で
+    // 動くアプリのプロセスを開く権利が無い。
+    //
+    // 代わりに、アプリから繋ぎっぱなしのパイプを 1 本もらう。
+    // アプリが終われば、正常終了でも強制終了でも OS がハンドルを閉じる。
+    // こちらの読み出しが失敗するので、それを死亡の合図にできる。
+    // 権限は要らない。
+    //
+    static HANDLE g_keepAlivePipe   = nullptr;
+    static HANDLE g_keepAliveThread = nullptr;
+
+    // こちらの都合で畳んでいる最中か。
+    // 畳むためにパイプを切ると読み出しも失敗するので、
+    // それを持ち主の死と取り違えないようにする。
+    static volatile LONG g_keepAliveDropping = 0;
+
+    static DWORD WINAPI KeepAliveThread(LPVOID param)
+    {
+        HANDLE pipe = (HANDLE)param;
+
+        // 相手は何も送ってこない。切れるまでここで待つのが仕事。
+        char  scratch = 0;
+        DWORD read    = 0;
+
+        while (ReadFile(pipe, &scratch, 1, &read, nullptr))
+        {
+            // 中身は見ない（届いても捨てる）
+        }
+
+        CloseHandle(pipe);
+
+        if (InterlockedCompareExchange(&g_keepAliveDropping, 0, 0) != 0)
+            return 0;   // 正常な切断。持ち主は生きている。
+
+        VMTRACE("Control: keep-alive link lost; disconnecting monitor");
+        DisconnectMonitor();
+
+        return 0;
+    }
+
+    /// <summary>見張りを畳む。持ち主が死んだ扱いにはしない。</summary>
+    static void StopKeepAlive()
+    {
+        if (g_keepAliveThread == nullptr) return;
+
+        InterlockedExchange(&g_keepAliveDropping, 1);
+
+        // 読み出しを解くために、こちらから切る
+        if (g_keepAlivePipe) DisconnectNamedPipe(g_keepAlivePipe);
+
+        WaitForSingleObject(g_keepAliveThread, 2000);
+        CloseHandle(g_keepAliveThread);
+
+        g_keepAliveThread = nullptr;
+        g_keepAlivePipe   = nullptr;
+
+        InterlockedExchange(&g_keepAliveDropping, 0);
+    }
+
+    /// <summary>
+    /// 届いた接続を見張り役として引き取る。以降このパイプは閉じない。
+    /// </summary>
+    static void AdoptKeepAlive(HANDLE pipe)
+    {
+        StopKeepAlive();   // 見張りは 1 本だけ
+
+        g_keepAlivePipe   = pipe;
+        g_keepAliveThread = CreateThread(nullptr, 0, KeepAliveThread, pipe, 0, nullptr);
+
+        if (g_keepAliveThread == nullptr)
+        {
+            VMTRACE("Control: keep-alive thread failed");
+            DisconnectNamedPipe(pipe);
+            CloseHandle(pipe);
+            g_keepAlivePipe = nullptr;
+            return;
+        }
+
+        VMTRACE("Control: keep-alive link established");
+    }
+
     /// <summary>持ち主の終了を待つ。死んだらモニターを外す。</summary>
     static DWORD WINAPI OwnerWatchThread(LPVOID)
     {
@@ -225,12 +312,21 @@ namespace VMonitorControl
 
             // 自分から切るので、持ち主の見張りも終える
             StopWatchingOwner();
+            StopKeepAlive();
 
-            DisconnectMonitor();
-            res.Succeeded = 1;
+            // 外せたかどうかをそのまま返す。
+            // 以前は常に成功と答えていたため、外せていないことが
+            // アプリ側から分からなかった。
+            res.Succeeded = DisconnectMonitor() ? 1u : 0u;
 
             break;
         }
+
+        case OpKeepAlive:
+            // 引き取りは呼び出し元（サーバーの受付ループ）が行う。
+            // ここでは応答を組み立てるだけ。
+            res.Succeeded = 1;
+            break;
 
         case OpGetState:
             res.Succeeded = 1;
@@ -335,6 +431,13 @@ namespace VMonitorControl
                 HandleCommand(cmd, res);
                 WriteFile(pipe, &res, sizeof(res), &written, nullptr);
                 FlushFileBuffers(pipe);
+
+                if (cmd.Operation == OpKeepAlive)
+                {
+                    // 見張り役として引き取る。ここで閉じてはいけない。
+                    AdoptKeepAlive(pipe);
+                    continue;
+                }
             }
 
             DisconnectNamedPipe(pipe);
@@ -386,6 +489,7 @@ namespace VMonitorControl
         // 見張りのスレッドを先に畳む。残すと、後片付けの最中に
         // モニターを外しにきて衝突する。
         StopWatchingOwner();
+        StopKeepAlive();
 
         if (g_stopEvent) SetEvent(g_stopEvent);
 

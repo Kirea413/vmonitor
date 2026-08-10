@@ -25,6 +25,20 @@ namespace VMonitorControl
         OpConnect    = 1,
         OpDisconnect = 2,
         OpGetState   = 3,
+
+        //
+        // 「持ち主はまだ生きている」ことを示すための、繋ぎっぱなしの接続。
+        //
+        // 他の操作と違い、こちらは応答を返した後もパイプを閉じない。
+        // アプリが終了すれば OS がハンドルを閉じるので、ドライバ側の
+        // 読み出しが失敗する。それを合図にモニターを外す。
+        //
+        // プロセス ID を見張る方式では駄目だった。ドライバは
+        // WUDFHost.exe の中で LocalService として動くため、利用者の
+        // プロセスを OpenProcess で開けない（アクセス拒否になる）。
+        // パイプなら特別な権限が要らない。
+        //
+        OpKeepAlive  = 4,
     };
 
 #pragma pack(push, 1)

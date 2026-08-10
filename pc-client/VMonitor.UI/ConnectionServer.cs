@@ -1949,6 +1949,30 @@ public sealed class ConnectionServer
             // 残すと、次に設定を保存したとき既に無いものを触りにいく。
             _rebuildCapture = null;
 
+            // 仮想モニターを真っ先に外す。
+            //
+            // 以前はストリーマーや受信側を畳んでから外していた。
+            // ところがケーブルを抜かれた直後は、その畳む処理そのものが
+            // 応答の無い USB を待って止まる。結果、ここまで到達せず
+            // 「繋いでいないのに画面が 1 枚多い」状態が残っていた。
+            //
+            // 利用者から見て一番困るのはモニターが残ることなので、
+            // 他の後始末より先に、かつ時間を区切って片付ける。
+            if (virtualDisplay is not null)
+            {
+                var display = virtualDisplay;
+                virtualDisplay = null;
+
+                bool released = await RunBoundedAsync(
+                    () => display.Dispose(),   // Dispose 内で切断してからハンドルを閉じる
+                    TimeSpan.FromSeconds(5));
+
+                _logger.Info("ConnectionServer",
+                    released
+                        ? "Virtual display disconnected"
+                        : "Virtual display disconnect timed out");
+            }
+
             // 投げっぱなしの読み出しが残っている状態で列挙子を捨てると
             // NotSupportedException になる。終わるのを待ってから片付ける。
             if (pendingRead is not null)
@@ -1958,18 +1982,13 @@ public sealed class ConnectionServer
 
             if (receiver is not null && (pendingRead is null || pendingRead.IsCompleted))
             {
-                try { await receiver.DisposeAsync(); } catch { }
+                var toDispose = receiver;
+                await RunBoundedAsync(
+                    async () => { try { await toDispose.DisposeAsync(); } catch { } },
+                    TimeSpan.FromSeconds(3));
             }
 
-            await streamer.StopAsync();
-
-            // スマホが離れたら仮想モニターも取り外す。
-            // 残したままにすると、繋いでいないのにディスプレイが増えたままになる。
-            if (virtualDisplay is not null)
-            {
-                virtualDisplay.Dispose();   // Dispose 内で切断してからハンドルを閉じる
-                _logger.Info("ConnectionServer", "Virtual display disconnected");
-            }
+            await RunBoundedAsync(() => streamer.StopAsync(), TimeSpan.FromSeconds(5));
 
             // 切断時に押されっぱなしの指が残らないよう、接触をすべて解放する
             injector?.Dispose();
@@ -1981,6 +2000,35 @@ public sealed class ConnectionServer
 
         return outcome;
     }
+
+    /// <summary>
+    /// 後始末をひとつ、時間を区切って実行する。
+    /// </summary>
+    /// <returns>時間内に終わったら true。</returns>
+    /// <remarks>
+    /// <para>
+    /// 相手が居なくなった直後の後片付けは、応答の無い相手を待って
+    /// 止まることがある。ひとつ止まると、その後ろに並んでいる後始末が
+    /// 全部道連れになる。仮想モニターの取り外しがまさにそれで、
+    /// 前段の処理が返ってこないせいで画面が残り続けていた。
+    /// </para>
+    /// <para>
+    /// 時間切れになっても待つのをやめるだけで、処理そのものは
+    /// 裏で走り続ける。止められない相手を強制的に畳む手立ては無いが、
+    /// 少なくとも後続の後始末は進められる。
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> RunBoundedAsync(Func<Task> work, TimeSpan limit)
+    {
+        // 同期的に固まる処理も混ざるため、必ず別スレッドへ逃がす
+        var task = Task.Run(work);
+
+        return await Task.WhenAny(task, Task.Delay(limit)) == task;
+    }
+
+    /// <inheritdoc cref="RunBoundedAsync(Func{Task}, TimeSpan)"/>
+    private static Task<bool> RunBoundedAsync(Action work, TimeSpan limit)
+        => RunBoundedAsync(() => { work(); return Task.CompletedTask; }, limit);
 
     /// <summary>
     /// スマホから届いたタッチイベントを復元し、Windows へ注入する。
