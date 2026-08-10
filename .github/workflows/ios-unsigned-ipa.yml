@@ -1,0 +1,89 @@
+# 無署名の iOS IPA を作る。
+#
+# Mac が手元に無くても iOS のビルドはできる。GitHub の macOS ランナーを
+# 借りればよい。ただし private リポジトリでは macOS の実行時間が
+# **通常の 10 倍**として課金される。1 回のビルドで 15 分かかると
+# 150 分ぶん消費する計算になる。手動起動のみにしてあるのはこのため。
+#
+# 出来上がるのは署名されていない .ipa で、そのままでは端末に入らない。
+# 受け取った人が Sideloadly や AltStore などで自分の証明書を付ける前提。
+#
+# ⚠ iOS 版はこれまで一度もビルドしていない。通る保証は無い。
+
+name: iOS 無署名 IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '出来た IPA を添付するリリースのタグ（空なら添付しない）'
+        required: false
+        default: ''
+      flutter_ref:
+        description: '使う Flutter のバージョン（タグ名）'
+        required: false
+        default: '3.41.7'
+
+# リリースへ添付するため書き込みが要る
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 第三者の action を使わずに用意する。
+      # ランナーのトークンを外部の action に渡さずに済む。
+      - name: Flutter を用意する
+        run: |
+          git clone --depth 1 -b "${{ inputs.flutter_ref }}" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: 版を控える
+        run: flutter --version
+
+      - name: 依存関係
+        working-directory: mobile-app
+        run: flutter pub get
+
+      # ios/Podfile は追跡していない。初回ビルド時に flutter が作る。
+      - name: ビルド（署名なし）
+        working-directory: mobile-app
+        run: flutter build ios --release --no-codesign
+
+      # .ipa は Payload/ に .app を入れた zip でしかない。
+      # 署名しないので xcodebuild -exportArchive は使えず、自分で組む。
+      - name: IPA にまとめる
+        id: package
+        working-directory: mobile-app/build/ios/iphoneos
+        run: |
+          version=$(grep '^version:' "$GITHUB_WORKSPACE/mobile-app/pubspec.yaml" \
+            | sed 's/^version: *//' | cut -d'+' -f1)
+          name="vmonitor-${version}-unsigned.ipa"
+
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry "$name" Payload
+
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "path=$PWD/$name" >> "$GITHUB_OUTPUT"
+          ls -lh "$name"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+
+      - name: リリースへ添付する
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            "${{ steps.package.outputs.path }}" --clobber
