@@ -249,26 +249,37 @@ class RendererSession: NSObject {
     }
 
     private func createFormatDescription(sps: Data, pps: Data) {
-        var spsBytes = [UInt8](sps)
-        var ppsBytes = [UInt8](pps)
-
-        let parameterSetPointers: [UnsafePointer<UInt8>?] = [
-            spsBytes.withUnsafeBufferPointer { $0.baseAddress },
-            ppsBytes.withUnsafeBufferPointer { $0.baseAddress }
-        ]
-        let parameterSetSizes: [Int] = [spsBytes.count, ppsBytes.count]
+        let spsBytes = [UInt8](sps)
+        let ppsBytes = [UInt8](pps)
 
         var desc: CMVideoFormatDescription?
-        let status = parameterSetPointers.withUnsafeBufferPointer { ptrPtr in
-            parameterSetSizes.withUnsafeBufferPointer { sizPtr in
-                CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                    allocator: kCFAllocatorDefault,
-                    parameterSetCount: 2,
-                    parameterSetPointers: ptrPtr.baseAddress!,
-                    parameterSetSizes: sizPtr.baseAddress!,
-                    nalUnitHeaderLength: 4,
-                    formatDescriptionOut: &desc
-                )
+
+        // withUnsafeBufferPointer が渡すポインタは、閉じ括弧までしか有効でない。
+        //
+        // 以前はここで取り出したポインタを配列に詰めて外へ持ち出していた。
+        // 括弧を抜けた時点で指し先の保証が切れるので、SPS/PPS として
+        // 何が読まれるか分からない。使う場所まで入れ子にして生かす。
+        let status = spsBytes.withUnsafeBufferPointer { spsBuffer -> OSStatus in
+            guard let spsBase = spsBuffer.baseAddress else { return -1 }
+
+            return ppsBytes.withUnsafeBufferPointer { ppsBuffer -> OSStatus in
+                guard let ppsBase = ppsBuffer.baseAddress else { return -1 }
+
+                let pointers: [UnsafePointer<UInt8>] = [spsBase, ppsBase]
+                let sizes:    [Int]                  = [spsBytes.count, ppsBytes.count]
+
+                return pointers.withUnsafeBufferPointer { pointerBuffer in
+                    sizes.withUnsafeBufferPointer { sizeBuffer in
+                        CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                            allocator:            kCFAllocatorDefault,
+                            parameterSetCount:    2,
+                            parameterSetPointers: pointerBuffer.baseAddress!,
+                            parameterSetSizes:    sizeBuffer.baseAddress!,
+                            nalUnitHeaderLength:  4,
+                            formatDescriptionOut: &desc
+                        )
+                    }
+                }
             }
         }
 
@@ -284,22 +295,49 @@ class RendererSession: NSObject {
         let avcc = convertAnnexBToAVCC(data: data)
         guard !avcc.isEmpty else { return nil }
 
-        var blockBuffer: CMBlockBuffer?
         let avccBytes = [UInt8](avcc)
-        let status1 = avccBytes.withUnsafeBufferPointer { ptr in
-            CMBlockBufferCreateWithMemoryBlock(
-                allocator: kCFAllocatorDefault,
-                memoryBlock: UnsafeMutableRawPointer(mutating: ptr.baseAddress!),
-                blockLength: avcc.count,
-                blockAllocator: kCFAllocatorNull,
-                customBlockSource: nil,
-                offsetToData: 0,
-                dataLength: avcc.count,
-                flags: 0,
-                blockBufferOut: &blockBuffer
+
+        // 中身を持つブロックバッファを作らせる。
+        //
+        // 以前は blockAllocator に kCFAllocatorNull を渡し、ローカル配列の
+        // メモリをそのまま指させていた。あれは「複製しない」という指定で、
+        // この関数を抜けた瞬間に指し先が無くなる。返した CMSampleBuffer は
+        // 解放済みの領域を読むことになり、何が映るか（落ちるかどうかも）
+        // 分からない。
+        //
+        // memoryBlock を nil にすると、必要な長さをバッファ側が確保する。
+        // そこへ中身を写せば、持ち主はバッファになる。
+        var blockBuffer: CMBlockBuffer?
+
+        var status1 = CMBlockBufferCreateWithMemoryBlock(
+            allocator:         kCFAllocatorDefault,
+            memoryBlock:       nil,
+            blockLength:       avccBytes.count,
+            blockAllocator:    kCFAllocatorDefault,
+            customBlockSource: nil,
+            offsetToData:      0,
+            dataLength:        avccBytes.count,
+            flags:             0,
+            blockBufferOut:    &blockBuffer
+        )
+
+        guard status1 == noErr, let blockBuf = blockBuffer else { return nil }
+
+        status1 = CMBlockBufferAssureBlockMemory(blockBuf)
+        guard status1 == noErr else { return nil }
+
+        status1 = avccBytes.withUnsafeBufferPointer { pointer in
+            guard let base = pointer.baseAddress else { return OSStatus(-1) }
+
+            return CMBlockBufferReplaceDataBytes(
+                with:                  base,
+                blockBuffer:           blockBuf,
+                offsetIntoDestination: 0,
+                dataLength:            avccBytes.count
             )
         }
-        guard status1 == noErr, let blockBuf = blockBuffer else { return nil }
+
+        guard status1 == noErr else { return nil }
 
         var sampleBuffer: CMSampleBuffer?
         let status2 = CMSampleBufferCreate(
