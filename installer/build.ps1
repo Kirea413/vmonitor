@@ -157,21 +157,52 @@ if (-not (Test-Path (Join-Path $AppStageDir 'VMonitor.Encoder.dll'))) {
 # ドライバの導入はこれに任せる。証明書の取り込み、古いパッケージの掃除、
 # そして「ルート列挙デバイスの作成」まで面倒を見る。
 # 最後の一つが要で、pnputil /install だけでは仮想ディスプレイは現れない。
-Write-Step 'セットアップ本体を発行しています...'
-
-$setupStage = Join-Path $InstallerDir 'obj\setup'
-if (Test-Path $setupStage) { Remove-Item $setupStage -Recurse -Force }
+#
+# アプリと同じフォルダへ、単一ファイルにせずに発行する。
+#
+# 以前は単一ファイルで発行して exe だけを持ってきていた。単一ファイルは
+# ランタイムを丸ごと中に抱えるので、隣に同じものがバラで置いてあるのに
+# もう 1 組ぶん、64 MB が重複していた。中身のコードは 200 KB ほどしかない。
+#
+# 自己完結 (SelfContained) は外せない。入れる先に .NET が無くても動く
+# 必要がある。ただし隣にランタイムが在るなら、それを共有すればよい。
+Write-Step 'セットアップ本体を発行しています（アプリと同じ場所へ）...'
 
 & dotnet publish (Join-Path $PcClientDir 'VMonitor.Installer\VMonitor.Installer.csproj') `
-    -c Release -o $setupStage --nologo -v q
+    -c Release -r win-x64 --self-contained true `
+    -p:PublishSingleFile=false `
+    -p:DebugType=None -p:DebugSymbols=false `
+    -p:SatelliteResourceLanguages=ja `
+    -o $AppStageDir --nologo -v q
 
 if ($LASTEXITCODE -ne 0) { throw 'セットアップ本体の発行に失敗しました。' }
 
-$setupExe = Join-Path $setupStage 'VMonitorSetup.exe'
-if (-not (Test-Path $setupExe)) { throw "VMonitorSetup.exe が見つかりません: $setupStage" }
+$setupExe = Join-Path $AppStageDir 'VMonitorSetup.exe'
+if (-not (Test-Path $setupExe)) { throw "VMonitorSetup.exe が見つかりません: $AppStageDir" }
 
-Copy-Item $setupExe $AppStageDir
-Write-Host "   $setupExe"
+# 単一ファイルをやめた以上、隣のランタイムが揃っていないと起動しない。
+# 揃っていないまま配ると、入れた先で「ドライバが入らない」という形でしか
+# 分からない。ここで確かめる。
+$hostFiles = @('hostfxr.dll', 'hostpolicy.dll', 'coreclr.dll', 'System.Private.CoreLib.dll')
+$missingHost = $hostFiles | Where-Object { -not (Test-Path (Join-Path $AppStageDir $_)) }
+
+if ($missingHost) {
+    throw ("セットアップ本体が動くためのランタイムが足りません: {0}" -f ($missingHost -join ', '))
+}
+
+# 自己完結のままか（フレームワーク依存に化けていないか）を確かめる。
+# 化けていると、.NET を入れていない PC で起動しない。
+$setupConfig = Join-Path $AppStageDir 'VMonitorSetup.runtimeconfig.json'
+
+if (-not (Test-Path $setupConfig)) {
+    throw "VMonitorSetup.runtimeconfig.json が見つかりません。"
+}
+
+if ((Get-Content $setupConfig -Raw) -notmatch 'includedFrameworks') {
+    throw "VMonitorSetup が自己完結で発行されていません（.NET が無い PC で起動しません）。"
+}
+
+Write-Host ("   {0}  ({1:N1} MB)" -f $setupExe, ((Get-Item $setupExe).Length / 1MB))
 
 # ── 5. ドライバを payload へ ────────────────────────────────────────────
 Write-Step 'payload にまとめています...'
