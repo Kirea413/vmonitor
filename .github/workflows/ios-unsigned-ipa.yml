@@ -84,6 +84,21 @@ jobs:
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG:  ${{ inputs.release_tag }}
+          FILE: ${{ steps.package.outputs.path }}
         run: |
-          gh release upload "${{ inputs.release_tag }}" \
-            "${{ steps.package.outputs.path }}" --clobber
+          # リリースがまだ無いことは珍しくない。
+          #
+          # 新しい版を出すときは、先にこのワークフローで IPA を作ってから
+          # 3 つまとめてリリースを作る、という順番になる。その場合ここは
+          # 貼り付け先が無い。以前はそれで job ごと赤くなり、ビルドまで
+          # 失敗したように見えた（実際は成功していて、成果物も残っている）。
+          #
+          # 添付できないことはビルドの失敗ではないので、伝えて次へ進む。
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::リリース $TAG がまだ無いため添付を飛ばしました。" \
+                 "IPA は成果物から取得できます。"
+            exit 0
+          fi
+
+          gh release upload "$TAG" "$FILE" --clobber
