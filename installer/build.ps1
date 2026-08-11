@@ -156,53 +156,74 @@ if (-not (Test-Path (Join-Path $AppStageDir 'VMonitor.Encoder.dll'))) {
 #
 # ドライバの導入はこれに任せる。証明書の取り込み、古いパッケージの掃除、
 # そして「ルート列挙デバイスの作成」まで面倒を見る。
-# 最後の一つが要で、pnputil /install だけでは仮想ディスプレイは現れない。
 #
-# アプリと同じフォルダへ、単一ファイルにせずに発行する。
+# 単一ファイルで発行し、exe だけを持ってくる。
 #
-# 以前は単一ファイルで発行して exe だけを持ってきていた。単一ファイルは
-# ランタイムを丸ごと中に抱えるので、隣に同じものがバラで置いてあるのに
-# もう 1 組ぶん、64 MB が重複していた。中身のコードは 200 KB ほどしかない。
+# 中にランタイムを丸ごと抱えるため 64 MB ほどあり、アプリのぶんと
+# 合わせて同じものが 2 組になる。無駄は承知のうえ。
 #
-# 自己完結 (SelfContained) は外せない。入れる先に .NET が無くても動く
-# 必要がある。ただし隣にランタイムが在るなら、それを共有すればよい。
-Write-Step 'セットアップ本体を発行しています（アプリと同じ場所へ）...'
+# 一度これをやめて同じフォルダへ並べたが、両方とも自己完結なので
+# 共通のアセンブリが重なり、こちらが持つ .NET 8 同梱の版が、
+# アプリが NuGet で持ち込んだ新しい版を上書きした。結果、
+#
+#   Could not load file or assembly 'System.Text.Json, Version=9.0.0.0'
+#
+# で全セッションが即死した。発行の順番を入れ替えても、別の
+# アセンブリ（System.Text.Encodings.Web）で同じことが起きる。
+# 容量より確実さを取る。
+Write-Step 'セットアップ本体を発行しています（単一ファイル）...'
+
+$setupStage = Join-Path $InstallerDir 'obj\setup'
+if (Test-Path $setupStage) { Remove-Item $setupStage -Recurse -Force }
 
 & dotnet publish (Join-Path $PcClientDir 'VMonitor.Installer\VMonitor.Installer.csproj') `
-    -c Release -r win-x64 --self-contained true `
-    -p:PublishSingleFile=false `
-    -p:DebugType=None -p:DebugSymbols=false `
-    -p:SatelliteResourceLanguages=ja `
-    -o $AppStageDir --nologo -v q
+    -c Release -o $setupStage --nologo -v q
 
 if ($LASTEXITCODE -ne 0) { throw 'セットアップ本体の発行に失敗しました。' }
 
-$setupExe = Join-Path $AppStageDir 'VMonitorSetup.exe'
-if (-not (Test-Path $setupExe)) { throw "VMonitorSetup.exe が見つかりません: $AppStageDir" }
+$setupExe = Join-Path $setupStage 'VMonitorSetup.exe'
+if (-not (Test-Path $setupExe)) { throw "VMonitorSetup.exe が見つかりません: $setupStage" }
 
-# 単一ファイルをやめた以上、隣のランタイムが揃っていないと起動しない。
-# 揃っていないまま配ると、入れた先で「ドライバが入らない」という形でしか
-# 分からない。ここで確かめる。
-$hostFiles = @('hostfxr.dll', 'hostpolicy.dll', 'coreclr.dll', 'System.Private.CoreLib.dll')
-$missingHost = $hostFiles | Where-Object { -not (Test-Path (Join-Path $AppStageDir $_)) }
-
-if ($missingHost) {
-    throw ("セットアップ本体が動くためのランタイムが足りません: {0}" -f ($missingHost -join ', '))
-}
-
-# 自己完結のままか（フレームワーク依存に化けていないか）を確かめる。
-# 化けていると、.NET を入れていない PC で起動しない。
-$setupConfig = Join-Path $AppStageDir 'VMonitorSetup.runtimeconfig.json'
-
-if (-not (Test-Path $setupConfig)) {
-    throw "VMonitorSetup.runtimeconfig.json が見つかりません。"
-}
-
-if ((Get-Content $setupConfig -Raw) -notmatch 'includedFrameworks') {
-    throw "VMonitorSetup が自己完結で発行されていません（.NET が無い PC で起動しません）。"
-}
-
+# exe だけを持ってくる。他のファイルは持ち込まない
+# （持ち込むとアプリ側のアセンブリと重なる）。
+Copy-Item $setupExe $AppStageDir
 Write-Host ("   {0}  ({1:N1} MB)" -f $setupExe, ((Get-Item $setupExe).Length / 1MB))
+
+# ── 版の食い違いを出荷前に見つける ──────────────────────────────────────
+#
+# 2 つを同じフォルダへ発行している以上、片方の古い版がもう片方の
+# 新しい版を上書きしうる。実際それで全セッションが即死した。
+# 順番で回避してあるが、順番だけに頼らず、ここでも確かめる。
+Write-Step '同居させたアセンブリの版を確認しています...'
+
+$uiDeps = Get-Content (Join-Path $AppStageDir 'VMonitor.UI.deps.json') -Raw | ConvertFrom-Json
+$checked = 0
+
+foreach ($target in $uiDeps.targets.PSObject.Properties) {
+    foreach ($entry in $target.Value.PSObject.Properties) {
+        $runtimeFiles = $entry.Value.runtime
+        if (-not $runtimeFiles) { continue }
+
+        foreach ($file in $runtimeFiles.PSObject.Properties) {
+            $wanted = $file.Value.assemblyVersion
+            if (-not $wanted) { continue }
+
+            $name = Split-Path $file.Name -Leaf
+            $onDisk = Join-Path $AppStageDir $name
+            if (-not (Test-Path $onDisk)) { continue }
+
+            $actual = [System.Reflection.AssemblyName]::GetAssemblyName($onDisk).Version.ToString()
+            $checked++
+
+            if ($actual -ne $wanted) {
+                throw ("{0} の版が違います。要求 {1} / 実物 {2}。 " -f $name, $wanted, $actual) +
+                      "同じフォルダへ発行している別のプロジェクトが上書きした可能性があります。"
+            }
+        }
+    }
+}
+
+Write-Host ("   {0} 個を照合し、食い違いはありませんでした。" -f $checked)
 
 # ── 5. ドライバを payload へ ────────────────────────────────────────────
 Write-Step 'payload にまとめています...'
