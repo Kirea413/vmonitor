@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:flutter/gestures.dart'
+    show PointerDeviceKind, PointerHoverEvent;
 import 'package:flutter/widgets.dart';
 
 import '../transport/transport.dart';
@@ -72,7 +73,22 @@ class TouchPoint {
 }
 
 /// タッチフェーズ
-enum TouchPhase { began, moved, ended, cancelled }
+enum TouchPhase {
+  began,
+  moved,
+  ended,
+  cancelled,
+
+  /// 触れずに近づいている（ペンのホバー）。
+  ///
+  /// Windows はペンが画面に近づくと、触れる前から位置を示す丸を出す。
+  /// これがあると狙った場所に下ろせる。触れてからでないと分からないと、
+  /// 一筆目が必ずずれる。
+  ///
+  /// 末尾に足すこと。並びがそのまま通信の値になっているので、
+  /// 途中に入れると古い版と食い違う。
+  hovered,
+}
 
 /// 画面向き
 enum Orientation { portrait, landscape, portraitFlipped, landscapeFlipped }
@@ -199,6 +215,16 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   }
 
   /// [PointerCancelEvent] を処理してポインターをキャンセルし、TouchEvent を発行する。
+  /// 触れずに近づいているペンの位置を送る。
+  ///
+  /// 指では起きない。ホバーを持つのはペンとマウスだけ。
+  void onPointerHover(PointerHoverEvent event) {
+    if (!_isPen(event.kind)) return;
+
+    _emitEvent(event.pointer, event.localPosition, 0.0,
+        TouchPhase.hovered, true);
+  }
+
   void onPointerCancel(PointerCancelEvent event) {
     _activePointers.remove(event.pointer);
     _emitEvent(event.pointer, event.localPosition, event.pressure,
@@ -553,6 +579,13 @@ class _TouchInputViewState extends State<TouchInputView> {
     _endGestureIfIdle();
   }
 
+  /// 触れずに近づいているペン。ジェスチャー中は送らない。
+  void _onHover(PointerHoverEvent event) {
+    if (_gestureMode) return;
+
+    widget.proxy.onPointerHover(event);
+  }
+
   void _onCancel(PointerCancelEvent event) {
     _pointers.remove(event.pointer);
 
@@ -596,6 +629,7 @@ class _TouchInputViewState extends State<TouchInputView> {
         return Listener(
           // HitTestBehavior.opaque: 子ウィジェットがヒット不要でも全面でイベントを受け取る
           behavior: HitTestBehavior.opaque,
+          onPointerHover: _onHover,
           onPointerDown: _onDown,
           onPointerMove: _onMove,
           onPointerUp: _onUp,

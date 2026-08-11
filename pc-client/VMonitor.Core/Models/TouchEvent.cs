@@ -56,5 +56,15 @@ public enum TouchPhase
     Ended,
 
     /// <summary>タッチキャンセル（システムによって中断された）。</summary>
-    Cancelled
+    Cancelled,
+
+    /// <summary>触れずに近づいている（ペンのホバー）。</summary>
+    /// <remarks>
+    /// Windows はペンが近づくと、触れる前から位置を示す丸を出す。
+    /// これがあると狙った場所に下ろせる。
+    ///
+    /// 末尾に足すこと。序数がそのまま通信の値になっているので、
+    /// 途中に入れると端末側と食い違う。
+    /// </remarks>
+    Hovered
 }

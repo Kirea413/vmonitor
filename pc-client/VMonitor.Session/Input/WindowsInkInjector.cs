@@ -244,6 +244,14 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 // 以降のタッチもまとめて壊れる。
                 bool isRelease = phase is TouchPhase.Ended or TouchPhase.Cancelled;
 
+                // ホバーは接触ではない。覚えておかない。
+                //
+                // 覚えると、ペンが画面から離れて通知が絶えたあとも
+                // 「まだそこに居る」として送り続け、幻のカーソルが
+                // 残る。ホバーは届いたその瞬間だけ位置を示せばよく、
+                // 続いている間は次々に届く。
+                bool isHover = phase is TouchPhase.Hovered;
+
                 int sendX = (isRelease && wasActive) ? existing.PixelX : px;
                 int sendY = (isRelease && wasActive) ? existing.PixelY : py;
 
@@ -254,7 +262,7 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                     Pressure: tp.Pressure,
                     Phase:    phase));
 
-                if (isRelease)
+                if (isRelease || isHover)
                     _activeContacts.Remove(tp.Id);
                 else
                     _activeContacts[tp.Id] = new ActiveContact(nativeId, px, py, tp.Pressure);

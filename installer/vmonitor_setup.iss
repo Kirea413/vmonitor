@@ -11,9 +11,9 @@
 #define AppName "vmonitor"
 ; pc-client\VMonitor.UI\VMonitor.UI.csproj の <Version> と必ず揃えること。
 ; アプリはこの値と GitHub Releases のタグを比べて更新を判断する。
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 ; 画面やインストーラーに出す表記。GitHub のタグは v1.0.0-beta。
-#define AppVersionLabel "1.0.0-beta"
+#define AppVersionLabel "1.1.0-beta"
 #define AppPublisher "vmonitor Project"
 #define AppURL "https://github.com/Kirea413/vmonitor"
 #define AppExeName "VMonitor.UI.exe"

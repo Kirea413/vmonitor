@@ -269,6 +269,14 @@ public sealed class Win32PointerInjectionBackend : IPointerInjectionBackend
         TouchPhase.Cancelled =>
             POINTER_FLAG_UP | POINTER_FLAG_CANCELED,
 
+        // 近づいているが触れていない。
+        //
+        // INRANGE だけを立て、INCONTACT は落とす。この組み合わせで
+        // Windows は「ペンが上にある」と解釈し、触れる前から位置を
+        // 示す丸を出す。INCONTACT まで立てると線を引いてしまう。
+        TouchPhase.Hovered =>
+            POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE,
+
         _ => POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT
     };
 

@@ -170,7 +170,7 @@ public static class TouchEventCodec
 
     private static bool TryMapPhase(byte code, out TouchPhase phase)
     {
-        if (code <= (byte)TouchPhase.Cancelled)
+        if (code <= (byte)TouchPhase.Hovered)
         {
             phase = (TouchPhase)code;
             return true;
