@@ -51,6 +51,29 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     /// <summary>接触中のコンタクト。キーはスマホ側のタッチ ID。</summary>
     private readonly Dictionary<int, ActiveContact> _activeContacts = new();
 
+    /// <summary>触れ続けている接触を送り直すためのタイマー。</summary>
+    /// <remarks>
+    /// <para>
+    /// Windows へ注入した接触は、放っておくと勝手に消える。一定の間隔で
+    /// 更新を送り続けないと、システム側が「もう触れていない」とみなす。
+    /// </para>
+    /// <para>
+    /// 端末は指が動いたときにしか知らせを送らない。長押しのように指を
+    /// 止めていると、こちらへ何も届かない時間ができる。その間に接触が
+    /// 消え、あとから届く「離した」は DOWN の無い UP として拒まれる。
+    /// そしてその拒否は「アクティブな全接触の取り消し」を伴うため、
+    /// 触れている他の指まで巻き添えで壊れる。
+    /// </para>
+    /// <para>
+    /// 実機では「長押ししたあとタッチが丸ごと効かなくなる」という形で
+    /// 出た。届かない間はこちらが同じ位置を送り直して繋ぎ止める。
+    /// </para>
+    /// </remarks>
+    private Timer? _holdTimer;
+
+    /// <summary>送り直す間隔。Windows の見切りより十分に短くする。</summary>
+    private static readonly TimeSpan HoldInterval = TimeSpan.FromMilliseconds(50);
+
     /// <summary>接触追跡の状態を保護するロック。</summary>
     private readonly object _contactLock = new();
 
@@ -157,6 +180,60 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
 
         if (!LastInjectionSucceeded)
             LastInjectedFrameSize = frame.Count;
+
+        UpdateHoldTimer();
+    }
+
+    /// <summary>触れている接触があるあいだだけ、送り直しを動かす。</summary>
+    private void UpdateHoldTimer()
+    {
+        bool needed;
+        lock (_contactLock) needed = _activeContacts.Count > 0;
+
+        if (needed)
+        {
+            _holdTimer ??= new Timer(_ => ResendHeldContacts(), null,
+                                     Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
+            _holdTimer.Change(HoldInterval, HoldInterval);
+            return;
+        }
+
+        // 触れていないのに送り続けない
+        _holdTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>触れ続けている接触を、同じ位置のまま送り直す。</summary>
+    private void ResendHeldContacts()
+    {
+        try
+        {
+            List<InjectedPointer> frame;
+
+            lock (_contactLock)
+            {
+                if (_disposed || _activeContacts.Count == 0) return;
+
+                frame = new List<InjectedPointer>(_activeContacts.Count);
+
+                foreach (var (_, contact) in _activeContacts)
+                {
+                    frame.Add(new InjectedPointer(
+                        Id:       (int)contact.NativeId,
+                        PixelX:   contact.PixelX,
+                        PixelY:   contact.PixelY,
+                        Pressure: contact.Pressure,
+                        Phase:    TouchPhase.Moved));
+                }
+            }
+
+            _backend.InjectFrame(frame);
+        }
+        catch
+        {
+            // 送り直しに失敗しても、次の指の動きで復帰する。
+            // ここで投げるとタイマーのスレッドごと落ちる。
+        }
     }
 
     /// <summary>直近の注入が成功したか（診断用）。</summary>
@@ -493,6 +570,10 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        // 送り直しを先に止める。残すと解放したあとに動く。
+        _holdTimer?.Dispose();
+        _holdTimer = null;
 
         ReleaseAllContacts();
 

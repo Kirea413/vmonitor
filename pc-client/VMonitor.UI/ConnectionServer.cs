@@ -454,8 +454,8 @@ public sealed class ConnectionServer
             // 同じ相手に繋ぎ直したら同じ行に戻るよう、宛先から識別子を決める
             var device = new DeviceInfo(
                 Id: DeviceIdentifier.FromKey($"vmonitor:wifi:{address}"),
-                Name: _lastDeviceName ?? $"Android ({address})",
-                Platform: DevicePlatform.Android,
+                Name: DescribeDevice($"（{address}）", usb: false).Name,
+                Platform: DescribeDevice($"（{address}）", usb: false).Platform,
                 PhysicalResolution: new Resolution(1080, 1920),
                 PixelDensity: 420f);
 
@@ -539,6 +539,9 @@ public sealed class ConnectionServer
     /// </remarks>
     private string? _lastDeviceName;
 
+    /// <summary>直近に名乗ってきた端末の種別。</summary>
+    private DevicePlatform? _lastDevicePlatform;
+
     /// <summary>USB で繋がっている端末を接続候補の一覧に出す。</summary>
     private void RememberUsbCandidate()
     {
@@ -547,8 +550,8 @@ public sealed class ConnectionServer
         // 毎回追加を頼む（同じ Id なら AddCandidate 側で弾かれる）。
         var device = _usbCandidate ?? new DeviceInfo(
             Id: UsbDeviceIdentity(),
-            Name: _lastDeviceName ?? "Android 端末（USB）",
-            Platform: DevicePlatform.Android,
+            Name: DescribeDevice("（USB）", usb: true).Name,
+            Platform: DescribeDevice("（USB）", usb: true).Platform,
             PhysicalResolution: new Resolution(1080, 1920),
             PixelDensity: 420f);
 
@@ -693,8 +696,8 @@ public sealed class ConnectionServer
                 // 別物になり、切断しても一覧から消えなくなる。
                 var device = new DeviceInfo(
                     Id: UsbDeviceIdentity(),
-                    Name: _lastDeviceName ?? "Android 端末（USB）",
-                    Platform: DevicePlatform.Android,
+                    Name: DescribeDevice("（USB）", usb: true).Name,
+                    Platform: DescribeDevice("（USB）", usb: true).Platform,
                     PhysicalResolution: new Resolution(1080, 1920),
                     PixelDensity: 420f);
 
@@ -948,6 +951,9 @@ public sealed class ConnectionServer
             var announcedName = TryParseHelloName(data.Span);
             if (announcedName is not null) _lastDeviceName = announcedName;
 
+            var announcedPlatform = TryParseHelloPlatform(data.Span);
+            if (announcedPlatform is not null) _lastDevicePlatform = announcedPlatform;
+
             var reported = TryParseHelloResolution(data.Span);
             if (reported is not null)
             {
@@ -962,6 +968,58 @@ public sealed class ConnectionServer
     }
 
     /// <summary>端末の名乗りから呼び名を取り出す。無ければ null。</summary>
+    /// <summary>名乗りから端末の種別を読む。分からなければ null。</summary>
+    /// <remarks>
+    /// 種別を送ってこない古い端末もある。その場合は決めつけない。
+    /// 以前はここが無く、一覧に何を繋いでも「Android」と出ていた。
+    /// iPhone から繋いでいるのに Android と表示され、どの端末なのか
+    /// 分からなくなっていた。
+    /// </remarks>
+    private static DevicePlatform? TryParseHelloPlatform(ReadOnlySpan<byte> payload)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(payload.ToArray());
+            var root = document.RootElement;
+
+            if (!root.TryGetProperty("type", out var type)) return null;
+            if (type.GetString() != "hello") return null;
+
+            if (!root.TryGetProperty("platform", out var platform)) return null;
+
+            return platform.GetString()?.ToLowerInvariant() switch
+            {
+                "ios"     => DevicePlatform.iOS,
+                "android" => DevicePlatform.Android,
+                _         => null,
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>いま分かっている範囲で、端末の種別と呼び名を決める。</summary>
+    /// <remarks>
+    /// 名乗りを受け取る前は分からない。決めつけずに、繋がる種類から
+    /// ありそうなほうを既定にする（USB 直結は Android にしか無い）。
+    /// 名乗りが届いたら、そちらで上書きされる。
+    /// </remarks>
+    private (DevicePlatform Platform, string Name) DescribeDevice(
+        string fallbackSuffix, bool usb)
+    {
+        // USB 直結 (AOA) は Android 専用の仕組みなので、名乗りが
+        // 届く前でも Android と決めてよい。Wi-Fi はどちらもありうる。
+        var platform = _lastDevicePlatform ?? DevicePlatform.Android;
+
+        if (_lastDeviceName is { Length: > 0 }) return (platform, _lastDeviceName);
+
+        string kind = platform == DevicePlatform.iOS ? "iOS 端末" : "Android 端末";
+
+        return (platform, $"{kind}{fallbackSuffix}");
+    }
+
     private static string? TryParseHelloName(ReadOnlySpan<byte> payload)
     {
         try
@@ -1553,8 +1611,8 @@ public sealed class ConnectionServer
             // 繋ぎ直しで一覧が増えないよう、相手のアドレスから識別子を決める
             var device = new DeviceInfo(
                 Id: DeviceIdentifier.FromKey($"vmonitor:wifi:{remoteAddr}"),
-                Name: $"Android ({remoteAddr})",
-                Platform: DevicePlatform.Android,
+                Name: DescribeDevice($"（{remoteAddr}）", usb: false).Name,
+                Platform: DescribeDevice($"（{remoteAddr}）", usb: false).Platform,
                 PhysicalResolution: new Resolution(1080, 1920),
                 PixelDensity: 420f);
 

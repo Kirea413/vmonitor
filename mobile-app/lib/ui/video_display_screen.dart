@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -312,10 +313,13 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
 
       // 端末の呼び名も添える。PC 側の一覧に出すため。
       // 取れなくても接続には差し支えないので、待たずに使えるぶんだけ使う。
-      _deviceName ??= await AoaTransport.deviceName();
+      _deviceName ??= await AoaTransport.deviceName() ?? await ScreenAwake.deviceName();
 
       final payload = jsonEncode({
         'type': 'hello',
+        // 端末の種別。PC の一覧に「Android 端末」とだけ出ていたため、
+        // iPhone から繋いでも Android と表示されていた。
+        'platform': Platform.isIOS ? 'ios' : 'android',
         'width': size.width.round(),
         'height': size.height.round(),
         'devicePixelRatio': view.devicePixelRatio,
