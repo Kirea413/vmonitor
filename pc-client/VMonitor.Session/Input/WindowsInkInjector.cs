@@ -228,7 +228,27 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 var (px, py) = TransformToPixels(tp.X, tp.Y, matrix, transform.DisplayResolution);
 
                 bool wasActive = _activeContacts.TryGetValue(tp.Id, out var existing);
-                var  phase     = NormalizePhase(tp.Phase, wasActive);
+
+                // 知らない指を離す知らせは、何もせず捨てる。
+                //
+                // 以前はこれを Began に読み替えていた。離すはずの知らせで
+                // 接触が 1 つ増え、二度と離されないまま積み残る。10 本ぶん
+                // 溜まると新しい指が全部捨てられ、タッチが丸ごと効かなく
+                // なっていた。端末を回すと releaseAllPointers で全消し
+                // されるため、「回すと直るが、しばらくするとまた死ぬ」
+                // という出かたをする。
+                //
+                // かといって、そのまま UP として注入してもいけない。
+                // Windows は DOWN の無い UP を拒み、その拒否は
+                // 「アクティブな全接触の取り消し」を伴う。巻き添えで
+                // 触れている指まで壊れる。
+                //
+                // この知らせ自体は普通に届く。画面側の都合で接触を
+                // まとめて解放したあと、利用者が指を離せばこれが来る。
+                if (!wasActive && tp.Phase is TouchPhase.Ended or TouchPhase.Cancelled)
+                    continue;
+
+                var phase = NormalizePhase(tp.Phase, wasActive);
 
                 if (phase is TouchPhase.Began && _activeContacts.Count >= MaxContacts)
                     continue; // 追跡上限を超えた新規接触は捨てる
@@ -293,11 +313,12 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     /// </summary>
     private static TouchPhase NormalizePhase(TouchPhase reported, bool wasActive) => reported switch
     {
-        TouchPhase.Began when wasActive      => TouchPhase.Moved,
-        TouchPhase.Moved when !wasActive     => TouchPhase.Began,
-        TouchPhase.Ended when !wasActive     => TouchPhase.Began,
-        TouchPhase.Cancelled when !wasActive => TouchPhase.Began,
-        _                                    => reported
+        TouchPhase.Began when wasActive  => TouchPhase.Moved,
+        TouchPhase.Moved when !wasActive => TouchPhase.Began,
+
+        // 知らない指の「離した」「取り消した」はここへ来ない。
+        // フレームに載せる前に捨てている（BuildFrame を参照）。
+        _ => reported
     };
 
     /// <summary>
