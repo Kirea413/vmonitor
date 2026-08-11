@@ -69,6 +69,22 @@ class AoaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
     /** 権限ダイアログの結果を受け取る。openAccessory はこれを待ってから呼ぶ。 */
     private var permissionReceiver: BroadcastReceiver? = null
 
+    /**
+     * 許可を尋ねている最中か。
+     *
+     * アプリ側は繋がるまで 1 秒ごとに接続を試みる。素通しにすると
+     * そのたびに新しい確認ダイアログが積まれ、閉じても閉じても出てくる。
+     */
+    private var permissionPending = false
+
+    /**
+     * 一度断られたか。
+     *
+     * 断られたあとも尋ね続けると、やはりダイアログが出続ける。
+     * 意思表示は 1 回で足りるので、ケーブルを挿し直すまでは尋ねない。
+     */
+    private var permissionDenied = false
+
     // ── FlutterPlugin ────────────────────────────────────────────────
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -212,14 +228,34 @@ class AoaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
         val manager = usbManager()
 
         if (manager.hasPermission(accessory)) {
+            permissionPending = false
+            permissionDenied = false
             openAccessory(accessory, result)
             return
         }
 
+        // 尋ねている最中なら、重ねて尋ねない。
+        if (permissionPending) {
+            result.error("PERMISSION_PENDING", "USB の利用許可を尋ねています。", null)
+            return
+        }
+
+        // 断られたあとは尋ね直さない。ケーブルを挿し直せばまた尋ねる。
+        if (permissionDenied) {
+            result.error("PERMISSION_DENIED", "USB アクセサリーの利用が許可されませんでした。", null)
+            return
+        }
+
+        permissionPending = true
+
         requestPermission(accessory) { granted ->
+            permissionPending = false
+
             if (granted) {
+                permissionDenied = false
                 openAccessory(accessory, result)
             } else {
+                permissionDenied = true
                 emitState("error", "USB アクセサリーの利用が許可されませんでした。")
                 result.error("PERMISSION_DENIED", "USB アクセサリーの利用が許可されませんでした。", null)
             }
@@ -332,6 +368,10 @@ class AoaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 if (intent.action != UsbManager.ACTION_USB_ACCESSORY_DETACHED) return
+
+                // 挿し直したら、また尋ねてよい状態に戻す
+                permissionPending = false
+                permissionDenied = false
                 closeConnection()
                 emitState("detached", "ケーブルが抜かれました。")
             }

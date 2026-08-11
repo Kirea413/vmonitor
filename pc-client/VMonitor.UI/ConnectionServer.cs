@@ -256,6 +256,12 @@ public sealed class ConnectionServer
     /// </remarks>
     private int _pcConnectRequested;
 
+    /// <summary>ボタンが押された時刻（<see cref="Environment.TickCount64"/>）。</summary>
+    private long _pcConnectRequestedAtMs;
+
+    /// <summary>押下を有効とみなす長さ。これを過ぎたものは捨てる。</summary>
+    private const long ConnectRequestLifetimeMs = 30_000;
+
     /// <summary>
     /// この PC から接続を申し込む。
     /// </summary>
@@ -269,7 +275,9 @@ public sealed class ConnectionServer
         AutoConnectUsb = true;
         _pcInitiated   = true;
 
-        // 押されたことを必ず 1 回ぶん残す
+        // 押されたことを必ず 1 回ぶん残す。時刻も一緒に残して、
+        // 古くなった押下が後の接続に効かないようにする。
+        Interlocked.Exchange(ref _pcConnectRequestedAtMs, Environment.TickCount64);
         Interlocked.Exchange(ref _pcConnectRequested, 1);
 
         // 接続待ちで見張っていれば、その場で起こす
@@ -417,16 +425,10 @@ public sealed class ConnectionServer
         // PC から繋ぎにいくので、承認はスマホ側で取る
         _pcInitiated = true;
 
-        // 「この PC が言い出した」ことを、待ち合わせが見ている印にも残す。
-        //
-        // _pcInitiated だけでは足りない。WaitForConnectTriggerAsync が
-        // 見ているのは _pcConnectRequested のほうで、これを立てずに
-        // セッションを始めると、PC はスマホからの要求を待ち続ける。
-        // スマホは PC からの要求を待っている。互いに待ち合ってしまい、
-        // どちらにも承認ダイアログが出ないまま止まっていた。
-        //
-        // USB は ConnectUsbNow がここを立てていたので気付かれなかった。
-        Interlocked.Exchange(ref _pcConnectRequested, 1);
+        // 押された印（_pcConnectRequested）はここでは立てない。
+        // 印は消し損ねるとセッションをまたいで残る。代わりに、
+        // このセッションが「PC から繋ぎに行ったもの」であることを
+        // 引数で直接伝える。
 
         SetOutboundState($"{address}:{port} へ接続しています…", connected: false, busy: true);
 
@@ -461,7 +463,7 @@ public sealed class ConnectionServer
 
             await RunSessionAsync(transport, device, $"{address}:{port}",
                                   VMonitor.Core.Models.TransportType.WiFi,
-                                  sessionCts.Token);
+                                  sessionCts.Token, pcInitiated: true);
 
             SetOutboundState("切断しました", connected: false, busy: false);
         }
@@ -1029,8 +1031,21 @@ public sealed class ConnectionServer
         IAsyncEnumerator<(ChannelId Channel, Memory<byte> Data)> receiver,
         DeviceInfo                            device,
         VMonitor.Core.Models.TransportType    transportType,
-        CancellationToken                     ct)
+        CancellationToken                     ct,
+        bool                                  pcInitiated = false)
     {
+        // この PC から繋ぎに行ったと分かっているなら、誰が言い出したかを
+        // 待つ必要はない。そのままスマホへ承認を求める。
+        //
+        // 以前はここも「押された印」を見ていた。印はセッションをまたいで
+        // 残るため、接続に失敗した回の押下が次の回に効いてしまい、
+        //   ・スマホから繋いだのに PC は「自分が言い出した」と誤解する
+        //   ・PC はスマホへ要求を送り、スマホは PC の返事を待つ
+        // という待ち合いになって、どちらにもダイアログが出ないまま
+        // 時間切れになっていた。
+        if (pcInitiated)
+            return await AskDeviceAsync(transport, receiver, null, transportType, ct);
+
         // まず「誰が繋ぎたいのか」を待つ。
         //
         // 以前はここが無く、端末を見つけた時点でいきなり PC 側の確認ダイアログを
@@ -1099,9 +1114,21 @@ public sealed class ConnectionServer
         VMonitor.Core.Models.TransportType    transportType,
         CancellationToken                     ct)
     {
-        // ボタンが既に押されていたなら、待たずに進む
+        // ボタンが既に押されていたなら、待たずに進む。
+        //
+        // ただし古い押下は捨てる。押した回の接続が失敗すると印だけが残り、
+        // 次にスマホから繋いだときに「PC が言い出した」と誤解する。
+        // そうなると PC はスマホへ要求を送り、スマホは PC の返事を待ち、
+        // どちらにもダイアログが出ないまま時間切れになる。
         if (Interlocked.Exchange(ref _pcConnectRequested, 0) == 1)
-            return (ConnectTrigger.Pc, null);
+        {
+            long pressedAt = Interlocked.Read(ref _pcConnectRequestedAtMs);
+
+            if (Environment.TickCount64 - pressedAt <= ConnectRequestLifetimeMs)
+                return (ConnectTrigger.Pc, null);
+
+            _logger.Info("ConnectionServer", "古い接続要求だったので無視しました");
+        }
 
         var pressed = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1564,12 +1591,16 @@ public sealed class ConnectionServer
         Denied,
     }
 
+    /// <param name="pcInitiated">
+    /// この PC から繋ぎに行った場合は true。承認はスマホ側で取る。
+    /// </param>
     private async Task<SessionOutcome> RunSessionAsync(
         ITransport                            transport,
         DeviceInfo                            device,
         string                                label,
         VMonitor.Core.Models.TransportType    transportType,
-        CancellationToken                     ct)
+        CancellationToken                     ct,
+        bool                                  pcInitiated = false)
     {
         var outcome = SessionOutcome.Completed;
 
@@ -1606,7 +1637,7 @@ public sealed class ConnectionServer
 
             // どちらが言い出したかで、承認を出す先が変わる。
             var (approved, leftover) = await NegotiateConnectAsync(
-                transport, receiver, device, transportType, ct);
+                transport, receiver, device, transportType, ct, pcInitiated);
 
             pendingRead = leftover;
 
