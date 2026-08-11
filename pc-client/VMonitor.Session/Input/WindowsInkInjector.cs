@@ -74,13 +74,27 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     /// <summary>送り直す間隔。Windows の見切りより十分に短くする。</summary>
     private static readonly TimeSpan HoldInterval = TimeSpan.FromMilliseconds(50);
 
+    /// <summary>
+    /// 端末からの知らせがこれだけ途絶えたら、その接触は離れたとみなす。
+    /// </summary>
+    /// <remarks>
+    /// 端末は触れているあいだ 200ms ごとに送ってくる。多少の遅れや
+    /// 取りこぼしで離してしまわないよう、その数倍を待つ。
+    /// </remarks>
+    private const long StaleContactMs = 1_200;
+
     /// <summary>接触追跡の状態を保護するロック。</summary>
     private readonly object _contactLock = new();
 
     private bool _disposed;
 
     /// <summary>接触中の 1 コンタクトの状態。</summary>
-    private readonly record struct ActiveContact(uint NativeId, int PixelX, int PixelY, double Pressure);
+    /// <param name="RefreshedAtMs">
+    /// 端末から最後に知らせが届いた時刻。届かなくなった接触を
+    /// こちらで離すために持つ。
+    /// </param>
+    private readonly record struct ActiveContact(
+        uint NativeId, int PixelX, int PixelY, double Pressure, long RefreshedAtMs);
 
     // ── 構築 ───────────────────────────────────────────────────────────────
 
@@ -214,10 +228,36 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
             {
                 if (_disposed || _activeContacts.Count == 0) return;
 
+                long now = Environment.TickCount64;
+
                 frame = new List<InjectedPointer>(_activeContacts.Count);
 
-                foreach (var (_, contact) in _activeContacts)
+                // 知らせが途絶えた接触は、こちらで離す。
+                //
+                // 端末は触れているあいだ、動かなくても定期的に知らせを
+                // 送ってくる。それが止まったということは、離したのに
+                // 「離した」が届かなかったということ。
+                //
+                // これが無いと、送り直しが永久に押し続ける。実機では
+                // 「指を離しているのに離した判定にならない」という形で出た。
+                var stale = new List<int>();
+
+                foreach (var (id, contact) in _activeContacts)
                 {
+                    if (now - contact.RefreshedAtMs > StaleContactMs)
+                    {
+                        stale.Add(id);
+
+                        frame.Add(new InjectedPointer(
+                            Id:       (int)contact.NativeId,
+                            PixelX:   contact.PixelX,
+                            PixelY:   contact.PixelY,
+                            Pressure: 0,
+                            Phase:    TouchPhase.Ended));
+
+                        continue;
+                    }
+
                     frame.Add(new InjectedPointer(
                         Id:       (int)contact.NativeId,
                         PixelX:   contact.PixelX,
@@ -225,6 +265,8 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                         Pressure: contact.Pressure,
                         Phase:    TouchPhase.Moved));
                 }
+
+                foreach (var id in stale) _activeContacts.Remove(id);
             }
 
             _backend.InjectFrame(frame);
@@ -362,7 +404,8 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 if (isRelease || isHover)
                     _activeContacts.Remove(tp.Id);
                 else
-                    _activeContacts[tp.Id] = new ActiveContact(nativeId, px, py, tp.Pressure);
+                    _activeContacts[tp.Id] = new ActiveContact(
+                        nativeId, px, py, tp.Pressure, Environment.TickCount64);
             }
 
             // 今回報告されなかった接触中コンタクトを直前の位置で維持する

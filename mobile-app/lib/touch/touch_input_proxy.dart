@@ -127,6 +127,20 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   /// 現在アクティブなタッチポイント: pointer ID → フレームオフセット座標
   final Map<int, Offset> _activePointers = {};
 
+  /// 触れ続けていることを知らせ続けるためのタイマー。
+  ///
+  /// 端末は指が動いたときにしか知らせを出さない。長押しのように
+  /// 止めていると何も送られず、PC 側からは生きているのか離れたのか
+  /// 区別が付かない。
+  ///
+  /// PC 側は届かない接触を一定時間で解放する。動かなくてもこちらから
+  /// 送り続けることで、押している間は解放されないようにする。
+  /// 逆に「離した」の知らせを取りこぼしても、送信が止まるので
+  /// PC 側が自分で気付いて離せる。
+  Timer? _holdTimer;
+
+  static const Duration _holdInterval = Duration(milliseconds: 200);
+
   /// タッチイベントを配信するコントローラ。
   final StreamController<TouchEvent> _controller =
       StreamController<TouchEvent>.broadcast();
@@ -258,6 +272,35 @@ class FlutterTouchInputProxy implements TouchInputProxy {
       kind == PointerDeviceKind.stylus ||
       kind == PointerDeviceKind.invertedStylus;
 
+  /// 触れている指があるあいだだけ、知らせ続ける。
+  void _updateHoldTimer() {
+    if (_activePointers.isEmpty) {
+      _holdTimer?.cancel();
+      _holdTimer = null;
+      return;
+    }
+
+    _holdTimer ??= Timer.periodic(_holdInterval, (_) => _emitHold());
+  }
+
+  /// 触れ続けている指を、同じ位置のまま送り直す。
+  void _emitHold() {
+    if (_activePointers.isEmpty) {
+      _updateHoldTimer();
+      return;
+    }
+
+    final first = _activePointers.entries.first;
+
+    // 主ポイント以外は _emitEvent が moved として一緒に載せてくれる
+    _emitEvent(first.key, first.value, _lastPressure[first.key] ?? 0.5,
+        TouchPhase.moved, _lastIsPen[first.key] ?? false);
+  }
+
+  /// 送り直すときに使う、直近の筆圧と種別。
+  final Map<int, double> _lastPressure = {};
+  final Map<int, bool>   _lastIsPen    = {};
+
   void _emitEvent(
     int pointer,
     Offset localPosition,
@@ -265,6 +308,15 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     TouchPhase phase,
     bool isPen,
   ) {
+    if (phase == TouchPhase.ended || phase == TouchPhase.cancelled) {
+      _lastPressure.remove(pointer);
+      _lastIsPen.remove(pointer);
+    } else {
+      _lastPressure[pointer] = pressure;
+      _lastIsPen[pointer] = isPen;
+    }
+
+    _updateHoldTimer();
     final widgetSize = _widgetSize;
     final points = <TouchPoint>[];
 
@@ -383,8 +435,14 @@ class FlutterTouchInputProxy implements TouchInputProxy {
 
   /// リソースを解放する。
   void dispose() {
+    // 送り直しを先に止める。残すと解放後に動く。
+    _holdTimer?.cancel();
+    _holdTimer = null;
+
     _controller.close();
     _activePointers.clear();
+    _lastPressure.clear();
+    _lastIsPen.clear();
     _transport = null;
   }
 }

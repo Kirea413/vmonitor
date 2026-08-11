@@ -98,4 +98,39 @@ public sealed class TouchContactLeakTests
         injector.InjectTouch(new[] { Point(5, TouchPhase.Began) }, Screen);
         Assert.Equal(1, injector.ActiveContactCount);
     }
+
+    [Fact]
+    public async Task 知らせが途絶えたら接触を離す()
+    {
+        using var injector = Create();
+
+        injector.InjectTouch(new[] { Point(2, TouchPhase.Began) }, Screen);
+        Assert.Equal(1, injector.ActiveContactCount);
+
+        // 端末は触れているあいだ 200ms ごとに知らせてくる。
+        // それが止まったということは、離したのに「離した」が
+        // 届かなかったということ。押しっぱなしにしない。
+        //
+        // 見切りは 1.2 秒。余裕を持って待つ。
+        await Task.Delay(2_000);
+
+        Assert.Equal(0, injector.ActiveContactCount);
+    }
+
+    [Fact]
+    public async Task 知らせが続いているあいだは離さない()
+    {
+        using var injector = Create();
+
+        injector.InjectTouch(new[] { Point(4, TouchPhase.Began) }, Screen);
+
+        // 長押しの最中。指は動かないが、端末は送り続けている。
+        for (int i = 0; i < 8; i++)
+        {
+            await Task.Delay(200);
+            injector.InjectTouch(new[] { Point(4, TouchPhase.Moved) }, Screen);
+        }
+
+        Assert.Equal(1, injector.ActiveContactCount);
+    }
 }
