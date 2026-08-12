@@ -1,9 +1,7 @@
 {
   "@@locale": "ja",
-
   "appTitle": "vmonitor",
   "homeTitle": "vmonitor — PC 接続",
-
   "usbTitle": "USB 直結",
   "usbSubtitle": "いちばん遅延が少ない繋ぎ方です。",
   "usbConnect": "USB で接続",
@@ -13,19 +11,20 @@
   "usbPcSilent": "PC が応答しません",
   "usbNoResponse": "ケーブルは繋がっていますが、PC 側の vmonitor から応答がありません。",
   "usbStartVmonitor": "PC で vmonitor を起動してください。",
-
   "adbTitle": "ADB 経由で接続",
   "adbSubtitle": "USB 直結が使えないときの代わりです。",
   "adbHint": "PC 側で adb reverse tcp:7979 tcp:7979 を実行しておいてください。",
-
   "listenTitle": "PC から接続してもらう",
   "listenHint": "PC 側の vmonitor に、次を入力してください。",
   "listenPreparing": "待ち受けを準備しています…",
   "listenNoWifi": "Wi-Fi に接続すると、この端末のアドレスがここに出ます。",
   "listenNotConnected": "Wi-Fi に繋がっていないようです。",
   "listenFailed": "待ち受けを開始できませんでした: {reason}",
-  "@listenFailed": { "placeholders": { "reason": {} } },
-
+  "@listenFailed": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
   "wifiTitle": "Wi-Fi で PC に繋ぐ",
   "wifiSubtitle": "PC と同じ Wi-Fi に繋がっている必要があります。",
   "wifiSearch": "PC を自動で探す",
@@ -34,34 +33,140 @@
   "wifiManualHint": "PC の IP アドレスを直接入れて繋ぎます（PC 側で ipconfig で確認）。",
   "wifiConnectToAddress": "このアドレスに接続",
   "foundPcs": "見つかった PC ({count} 台)",
-  "@foundPcs": { "placeholders": { "count": { "type": "int" } } },
-
+  "@foundPcs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "fieldIpAddress": "IP アドレス",
   "fieldIpExample": "例: 192.168.1.10",
   "fieldPort": "ポート",
-
   "connecting": "{name} に接続中…",
-  "@connecting": { "placeholders": { "name": {} } },
+  "@connecting": {
+    "placeholders": {
+      "name": {}
+    }
+  },
   "connected": "{name} に接続しました",
-  "@connected": { "placeholders": { "name": {} } },
+  "@connected": {
+    "placeholders": {
+      "name": {}
+    }
+  },
   "establishing": "セッションを確立しています…",
   "waitingPcApproval": "PC 側の承認を待っています",
   "pcApprovalHint": "PC の画面に確認が出ています。\n「はい」を押すと映像が始まります。",
   "pcDenied": "PC 側で許可されませんでした。",
-
   "timeoutTitle": "接続タイムアウト",
   "timeoutBody": "{name} への接続が 10 秒以内に完了しませんでした。\nPC クライアントが起動しているか、IP アドレスが正しいか確認してください。",
-  "@timeoutBody": { "placeholders": { "name": {} } },
-
+  "@timeoutBody": {
+    "placeholders": {
+      "name": {}
+    }
+  },
   "approveTitle": "PC から接続の要求",
   "approveBody": "PC がこの端末に画面を映そうとしています。\n許可しますか？",
   "approveAllow": "許可",
   "approveDeny": "拒否",
-
   "actionRetry": "再試行",
   "actionBack": "戻る",
   "actionCancel": "やめる",
   "actionConnect": "接続",
   "actionDetails": "詳細",
-  "stateDisconnected": "未接続"
+  "stateDisconnected": "未接続",
+  "gestureSwipeDown": "3 本指で下に払う",
+  "gestureSwipeUp": "3 本指で上に払う",
+  "gestureFourFingerTap": "4 本指で触れる",
+  "gestureLongPressTopLeft": "左上を長押し",
+  "gestureNone": "使わない",
+  "gestureSwipeDownDesc": "映像の上を 3 本指で下へ払うと確認が出ます。",
+  "gestureSwipeUpDesc": "映像の上を 3 本指で上へ払うと確認が出ます。",
+  "gestureFourFingerTapDesc": "4 本指で同時に触れると確認が出ます。払う必要はありません。",
+  "gestureLongPressTopLeftDesc": "画面の左上あたりを長押しすると確認が出ます。",
+  "gestureNoneDesc": "設定画面の「接続を切ってホームに戻る」から切断します。",
+  "videoStarting": "映像ストリームを開始しています…",
+  "videoStartFailed": "映像ストリームの開始に失敗しました: {reason}",
+  "@videoStartFailed": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "streamError": "ストリームエラー: {reason}",
+  "@streamError": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "usbDisconnected": "USB 接続が切断されました。\nケーブルを挿し直すと再接続できます。",
+  "usbDisconnectedWhy": "USB 接続が切断されました。\n{reason}",
+  "@usbDisconnectedWhy": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "disconnectedGeneric": "接続が切断されました。\nPC 側の vmonitor が動いているか確認してください。",
+  "confirmDisconnectTitle": "接続を切りますか？",
+  "confirmDisconnectBody": "PC との接続を切ってホーム画面に戻ります。",
+  "actionKeepGoing": "続ける",
+  "actionDisconnect": "切断",
+  "actionBackHome": "ホームに戻る",
+  "actionDone": "完了",
+  "actionReset": "リセット",
+  "insetEditPortrait": "余白を調整（縦向き）",
+  "insetEditLandscape": "余白を調整（横向き）",
+  "insetEditHint": "縦と横で別々に覚えます。回しても付ける場所がずれません。",
+  "edgeTop": "上",
+  "edgeBottom": "下",
+  "edgeLeft": "左",
+  "edgeRight": "右",
+  "settingsTitle": "ストリーミング設定",
+  "settingsFramerate": "フレームレート",
+  "settingsFramerateHint": "映像の滑らかさを設定します。高い値ほど滑らかですが帯域を多く使います。",
+  "settingsBitrate": "ビットレート",
+  "settingsBitrateHint": "映像品質を設定します。高い値ほど高品質ですが帯域を多く使います（1〜50 Mbps）。",
+  "settingsApply": "設定を適用",
+  "settingsApplying": "送信中…",
+  "settingsApplied": "設定を適用しました",
+  "settingsApplyFailed": "送信に失敗しました: {reason}",
+  "@settingsApplyFailed": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "settingsExitHome": "接続を切ってホームに戻る",
+  "settingsKeepAwake": "映している間は画面を消さない",
+  "settingsKeepAwakeHint": "2 枚目のモニターとして使うときに、触っていなくても消えないようにします。外すと端末の設定どおりに消灯します（電池は長持ちします）。",
+  "settingsKeepBright": "映している間は暗くしない",
+  "settingsKeepBrightHint": "触っていないと端末が勝手に画面を暗くします。それを止めます。効くのはこのアプリを開いている間だけで、端末の明るさ設定は変えません。",
+  "settingsGestureTitle": "切断の操作",
+  "settingsGestureHint": "映像を見ている間に切断するための操作です。画面いっぱいが PC の入力面なので、ボタンではなく操作で抜けます。",
+  "settingsConfirmBefore": "切断の前に確認する",
+  "settingsConfirmBeforeHint": "外すと、操作した時点ですぐ切断してホームに戻ります。",
+  "settingsShowButton": "設定ボタンを表示する",
+  "settingsShowButtonHint": "映像の上に出る歯車のボタンです。ドラッグで移動、長押しで非表示にできます。隠したあとは画面の左上を 2 回叩くと戻ります。",
+  "settingsShowDebug": "受信状況を画面に表示する",
+  "settingsShowDebugHint": "受信したパケット数などを左上に出します。映像がまだ来ていない間は、この設定に関わらず表示します。",
+  "settingsInsetTitle": "画面の余白",
+  "settingsInsetHint": "画面の縁は狙って触りにくいので、内側だけを使うようにできます。映像ごと内側に寄せるため、PC 画面のどこにでも届く状態は変わりません。",
+  "settingsInsetPerOrientation": "縦向きと横向きで別々に覚えます（いま設定しているのは{orientation}向きです）。同じ値を使い回すと、回したときに避けたかった場所とは違うところが削られてしまうためです。",
+  "@settingsInsetPerOrientation": {
+    "placeholders": {
+      "orientation": {}
+    }
+  },
+  "settingsInsetAdjustLive": "映像を見ながら調整する",
+  "settingsInsetClear": "余白をなくす",
+  "orientationPortrait": "縦",
+  "orientationLandscape": "横",
+  "buttonHidden": "設定ボタンを隠しました。画面の左上を 2 回叩くと戻ります。",
+  "debugWaiting": "映像を待機中",
+  "debugShowing": "表示中 {fps} fps  デコード {ms}ms",
+  "@debugShowing": {
+    "placeholders": {
+      "fps": {},
+      "ms": {}
+    }
+  }
 }

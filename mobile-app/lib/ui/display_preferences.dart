@@ -1,4 +1,6 @@
 ﻿import 'package:flutter/widgets.dart';
+
+import '../l10n/app_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 切断に使う操作。
@@ -26,26 +28,24 @@ enum DisconnectGesture {
   none;
 
   /// 設定画面に出す名前。
-  String get label => switch (this) {
-        DisconnectGesture.threeFingerSwipeDown => '3 本指で下に払う',
-        DisconnectGesture.threeFingerSwipeUp   => '3 本指で上に払う',
-        DisconnectGesture.fourFingerTap        => '4 本指で触れる',
-        DisconnectGesture.longPressTopLeft     => '左上を長押し',
-        DisconnectGesture.none                 => '使わない',
+  ///
+  /// 訳文を受け取る形にしてある。enum のゲッターのままだと
+  /// context が無く、表示する言語を引けない。
+  String label(L t) => switch (this) {
+        DisconnectGesture.threeFingerSwipeDown => t.gestureSwipeDown,
+        DisconnectGesture.threeFingerSwipeUp   => t.gestureSwipeUp,
+        DisconnectGesture.fourFingerTap        => t.gestureFourFingerTap,
+        DisconnectGesture.longPressTopLeft     => t.gestureLongPressTopLeft,
+        DisconnectGesture.none                 => t.gestureNone,
       };
 
   /// 何をするとどうなるかの補足。
-  String get description => switch (this) {
-        DisconnectGesture.threeFingerSwipeDown =>
-          '映像の上を 3 本指で下へ払うと確認が出ます。',
-        DisconnectGesture.threeFingerSwipeUp =>
-          '映像の上を 3 本指で上へ払うと確認が出ます。',
-        DisconnectGesture.fourFingerTap =>
-          '4 本指で同時に触れると確認が出ます。払う必要はありません。',
-        DisconnectGesture.longPressTopLeft =>
-          '画面の左上あたりを長押しすると確認が出ます。',
-        DisconnectGesture.none =>
-          '設定画面の「接続を切ってホームに戻る」から切断します。',
+  String description(L t) => switch (this) {
+        DisconnectGesture.threeFingerSwipeDown => t.gestureSwipeDownDesc,
+        DisconnectGesture.threeFingerSwipeUp   => t.gestureSwipeUpDesc,
+        DisconnectGesture.fourFingerTap        => t.gestureFourFingerTapDesc,
+        DisconnectGesture.longPressTopLeft     => t.gestureLongPressTopLeftDesc,
+        DisconnectGesture.none                 => t.gestureNoneDesc,
       };
 
   /// この操作を認識するのに要る指の本数。

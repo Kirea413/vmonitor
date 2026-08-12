@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../transport/transport.dart';
+import '../l10n/app_localizations.dart';
 import 'display_preferences.dart';
 
 /// スマホアプリの設定画面。
@@ -267,9 +268,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   dense: true,
                   value: option,
                   title:
-                      Text(option.label, style: const TextStyle(fontSize: 14)),
+                      Text(option.label(L.of(context)), style: const TextStyle(fontSize: 14)),
                   subtitle: Text(
-                    option.description,
+                    option.description(L.of(context)),
                     style: const TextStyle(fontSize: 11),
                   ),
                 ),

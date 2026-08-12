@@ -1,9 +1,7 @@
 {
   "@@locale": "en",
-
   "appTitle": "vmonitor",
   "homeTitle": "vmonitor — Connect to a PC",
-
   "usbTitle": "USB cable",
   "usbSubtitle": "The lowest-latency way to connect.",
   "usbConnect": "Connect over USB",
@@ -13,19 +11,20 @@
   "usbPcSilent": "The PC is not responding",
   "usbNoResponse": "The cable is connected, but vmonitor on the PC is not answering.",
   "usbStartVmonitor": "Start vmonitor on the PC.",
-
   "adbTitle": "Connect over ADB",
   "adbSubtitle": "A fallback for when the direct USB link is unavailable.",
   "adbHint": "Run adb reverse tcp:7979 tcp:7979 on the PC first.",
-
   "listenTitle": "Let the PC connect",
   "listenHint": "Enter the following on the PC.",
   "listenPreparing": "Getting ready to listen…",
   "listenNoWifi": "Connect to Wi-Fi and this device's address will appear here.",
   "listenNotConnected": "This device does not seem to be on Wi-Fi.",
   "listenFailed": "Could not start listening: {reason}",
-  "@listenFailed": { "placeholders": { "reason": {} } },
-
+  "@listenFailed": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
   "wifiTitle": "Connect over Wi-Fi",
   "wifiSubtitle": "Both devices must be on the same Wi-Fi network.",
   "wifiSearch": "Find PCs automatically",
@@ -34,34 +33,140 @@
   "wifiManualHint": "Enter the PC's IP address directly (run ipconfig on the PC to find it).",
   "wifiConnectToAddress": "Connect to this address",
   "foundPcs": "{count, plural, =1{1 PC found} other{{count} PCs found}}",
-  "@foundPcs": { "placeholders": { "count": { "type": "int" } } },
-
+  "@foundPcs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "fieldIpAddress": "IP address",
   "fieldIpExample": "e.g. 192.168.1.10",
   "fieldPort": "Port",
-
   "connecting": "Connecting to {name}…",
-  "@connecting": { "placeholders": { "name": {} } },
+  "@connecting": {
+    "placeholders": {
+      "name": {}
+    }
+  },
   "connected": "Connected to {name}",
-  "@connected": { "placeholders": { "name": {} } },
+  "@connected": {
+    "placeholders": {
+      "name": {}
+    }
+  },
   "establishing": "Establishing the session…",
   "waitingPcApproval": "Waiting for the PC to approve",
   "pcApprovalHint": "A prompt is showing on the PC.\nChoose Yes to start the video.",
   "pcDenied": "The PC did not allow the connection.",
-
   "timeoutTitle": "Connection timed out",
   "timeoutBody": "Could not reach {name} within 10 seconds.\nCheck that the PC client is running and that the IP address is correct.",
-  "@timeoutBody": { "placeholders": { "name": {} } },
-
+  "@timeoutBody": {
+    "placeholders": {
+      "name": {}
+    }
+  },
   "approveTitle": "A PC wants to connect",
   "approveBody": "A PC is asking to show its screen on this device.\nAllow it?",
   "approveAllow": "Allow",
   "approveDeny": "Deny",
-
   "actionRetry": "Try again",
   "actionBack": "Back",
   "actionCancel": "Cancel",
   "actionConnect": "Connect",
   "actionDetails": "Details",
-  "stateDisconnected": "Not connected"
+  "stateDisconnected": "Not connected",
+  "gestureSwipeDown": "Swipe down with three fingers",
+  "gestureSwipeUp": "Swipe up with three fingers",
+  "gestureFourFingerTap": "Touch with four fingers",
+  "gestureLongPressTopLeft": "Press and hold the top-left corner",
+  "gestureNone": "Off",
+  "gestureSwipeDownDesc": "Swipe down over the video with three fingers to get a prompt.",
+  "gestureSwipeUpDesc": "Swipe up over the video with three fingers to get a prompt.",
+  "gestureFourFingerTapDesc": "Touch with four fingers at once to get a prompt. No swipe needed.",
+  "gestureLongPressTopLeftDesc": "Press and hold near the top-left corner to get a prompt.",
+  "gestureNoneDesc": "Disconnect from Settings, using the go-home button.",
+  "videoStarting": "Starting the video stream…",
+  "videoStartFailed": "Could not start the video stream: {reason}",
+  "@videoStartFailed": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "streamError": "Stream error: {reason}",
+  "@streamError": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "usbDisconnected": "The USB connection was lost.\nReconnect the cable to try again.",
+  "usbDisconnectedWhy": "The USB connection was lost.\n{reason}",
+  "@usbDisconnectedWhy": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "disconnectedGeneric": "The connection was lost.\nCheck that vmonitor is running on the PC.",
+  "confirmDisconnectTitle": "Disconnect?",
+  "confirmDisconnectBody": "This closes the connection and returns to the home screen.",
+  "actionKeepGoing": "Keep going",
+  "actionDisconnect": "Disconnect",
+  "actionBackHome": "Go home",
+  "actionDone": "Done",
+  "actionReset": "Reset",
+  "insetEditPortrait": "Adjust margins (portrait)",
+  "insetEditLandscape": "Adjust margins (landscape)",
+  "insetEditHint": "Portrait and landscape are remembered separately, so rotating keeps them in place.",
+  "edgeTop": "Top",
+  "edgeBottom": "Bottom",
+  "edgeLeft": "Left",
+  "edgeRight": "Right",
+  "settingsTitle": "Streaming settings",
+  "settingsFramerate": "Frame rate",
+  "settingsFramerateHint": "How smooth the video is. Higher is smoother but uses more bandwidth.",
+  "settingsBitrate": "Bit rate",
+  "settingsBitrateHint": "Video quality. Higher looks better but uses more bandwidth (1-50 Mbps).",
+  "settingsApply": "Apply",
+  "settingsApplying": "Sending…",
+  "settingsApplied": "Settings applied",
+  "settingsApplyFailed": "Could not send the settings: {reason}",
+  "@settingsApplyFailed": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "settingsExitHome": "Disconnect and go home",
+  "settingsKeepAwake": "Keep the screen on while streaming",
+  "settingsKeepAwakeHint": "Stops the screen turning off while this device is used as a monitor. Turn it off to follow the device's own timeout, which is kinder to the battery.",
+  "settingsKeepBright": "Keep the screen bright while streaming",
+  "settingsKeepBrightHint": "Devices dim the screen when untouched. This prevents that. It applies only while this app is open and does not change the device's brightness setting.",
+  "settingsGestureTitle": "Disconnect gesture",
+  "settingsGestureHint": "How to disconnect while watching. The whole screen is the PC's input surface, so a gesture is used instead of a button.",
+  "settingsConfirmBefore": "Confirm before disconnecting",
+  "settingsConfirmBeforeHint": "Turn this off to disconnect immediately when the gesture is made.",
+  "settingsShowButton": "Show the settings button",
+  "settingsShowButtonHint": "The gear button over the video. Drag to move it, press and hold to hide it. Once hidden, double-tap the top-left corner to bring it back.",
+  "settingsShowDebug": "Show reception details on screen",
+  "settingsShowDebugHint": "Shows packet counts and similar figures in the top-left corner. They appear regardless while no video has arrived yet.",
+  "settingsInsetTitle": "Screen margins",
+  "settingsInsetHint": "The edges of a screen are hard to hit accurately, so you can use only the inner area. The video moves inward with it, so every part of the PC screen stays reachable.",
+  "settingsInsetPerOrientation": "Portrait and landscape are remembered separately (you are editing {orientation} now). Sharing one value would trim the wrong side after rotating.",
+  "@settingsInsetPerOrientation": {
+    "placeholders": {
+      "orientation": {}
+    }
+  },
+  "settingsInsetAdjustLive": "Adjust while watching the video",
+  "settingsInsetClear": "Clear margins",
+  "orientationPortrait": "portrait",
+  "orientationLandscape": "landscape",
+  "buttonHidden": "The settings button is hidden. Double-tap the top-left corner to bring it back.",
+  "debugWaiting": "Waiting for video",
+  "debugShowing": "{fps} fps  decode {ms}ms",
+  "@debugShowing": {
+    "placeholders": {
+      "fps": {},
+      "ms": {}
+    }
+  }
 }
