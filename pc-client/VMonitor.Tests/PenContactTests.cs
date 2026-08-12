@@ -137,6 +137,97 @@ public sealed class PenContactTests
     }
 
     [Fact]
+    public void 浮かせたペンの位置が届く()
+    {
+        var backend = new RecordingPointerInjectionBackend();
+        using var injector = new WindowsInkInjector(backend, ownsBackend: true);
+
+        // 触れる前の知らせなので、その ID の接触はまだ無い。
+        // 「知らない指の続き」と一緒に捨てていた時期があり、
+        // 浮かせたペンの位置が一度も届いていなかった。
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Hovered) }, Screen);
+
+        Assert.Contains(backend.Frames[^1], p => p.Phase == TouchPhase.Hovered);
+    }
+
+    [Fact]
+    public void 書いている途中で浮いたら離したことになる()
+    {
+        var backend = new RecordingPointerInjectionBackend();
+        using var injector = new WindowsInkInjector(backend, ownsBackend: true);
+
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Began) }, Screen);
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Moved) }, Screen);
+
+        // ペン先が画面から浮いた。触れてはいないが、まだ近くにある。
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Hovered) }, Screen);
+
+        // 追跡から外すだけでは駄目。Windows には UP を送っていないので
+        // 向こうではペンが触れたままになる。こちらは追跡をやめている
+        // ぶん 1.2 秒の時間切れも働かず、永久に押されっぱなしになる。
+        Assert.Contains(backend.Frames[^1], p => p.Phase == TouchPhase.Ended);
+        Assert.Equal(0, injector.ActiveContactCount);
+    }
+
+    [Fact]
+    public void 浮いたあとに届いた離したで壊れない()
+    {
+        var backend = new RecordingPointerInjectionBackend();
+        using var injector = new WindowsInkInjector(backend, ownsBackend: true);
+
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Began) }, Screen);
+
+        // 実機では、離すとホバーと「離した」の両方が届く。順序は選べない。
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Hovered) }, Screen);
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Ended) }, Screen);
+
+        Assert.Equal(0, injector.ActiveContactCount);
+
+        // 別の場所で書き直す。前の位置から線が繋がってはいけない。
+        var again = new TouchPoint
+        {
+            Id = 1, X = 0.9, Y = 0.9, Pressure = 0.7,
+            Phase = TouchPhase.Began, IsPen = true,
+        };
+
+        injector.InjectTouch(new[] { again }, Screen);
+
+        Assert.Contains(backend.Frames[^1], p => p.Phase == TouchPhase.Began);
+        Assert.DoesNotContain(backend.Frames[^1], p => p.Phase == TouchPhase.Ended);
+    }
+
+    [Fact]
+    public void 別IDのホバーでも書いていたペンが離れる()
+    {
+        var backend = new RecordingPointerInjectionBackend();
+        using var injector = new WindowsInkInjector(backend, ownsBackend: true);
+
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Began) }, Screen);
+
+        // 端末側のホバーは、押した・離したとは別の ID で届く。
+        // Flutter が触れるたびに新しい ID を振るため一致しない。
+        // ID の一致を待っていると、離したペンが時間切れまで残り、
+        // その間ホバーで位置が動くので次の一筆が前から繋がる。
+        injector.InjectTouch(new[] { Pen(7, TouchPhase.Hovered) }, Screen);
+
+        Assert.Equal(0, injector.ActiveContactCount);
+        Assert.Contains(backend.Frames[^1], p => p.Phase == TouchPhase.Ended);
+    }
+
+    [Fact]
+    public void 指で触れている間は別IDのホバーで離れない()
+    {
+        using var injector = Create();
+
+        // 指はホバーを出さない。タッチ中に紛れ込んだホバーで
+        // 触れている指まで離してしまうと、巻き添えになる。
+        injector.InjectTouch(new[] { Finger(1, TouchPhase.Began) }, Screen);
+        injector.InjectTouch(new[] { Finger(1, TouchPhase.Moved) }, Screen);
+
+        Assert.Equal(1, injector.ActiveContactCount);
+    }
+
+    [Fact]
     public void 離した直後に遅れて届いた心拍で復活しない()
     {
         using var injector = Create();

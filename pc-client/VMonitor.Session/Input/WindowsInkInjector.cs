@@ -370,6 +370,36 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
 
         lock (_contactLock)
         {
+            // ペンが浮いたなら、触れている接触は残っていないはず。
+            //
+            // Windows のペン注入は 1 本しか扱えない。その 1 本が
+            // 浮きながら同時に触れていることは、物理的に起きない。
+            //
+            // 端末側のホバーは、押した・離したとは別のポインター ID で
+            // 届く。Flutter が触れるたびに新しい ID を振るため、ID では
+            // 突き合わせられない。ID 一致を待っていると、離したはずの
+            // ペンが 1.2 秒の時間切れまで残り、その間ホバーで位置が
+            // 動くので、次の一筆が前の位置から繋がる。
+            if (_mode == PointerInjectionMode.Pen
+                && points.Any(p => p.Phase is TouchPhase.Hovered))
+            {
+                foreach (var (id, contact) in _activeContacts.ToList())
+                {
+                    // 同じ ID のものは、この後のループで面倒を見る
+                    if (points.Any(p => p.Id == id))
+                        continue;
+
+                    frame.Add(new InjectedPointer(
+                        Id:       (int)contact.NativeId,
+                        PixelX:   contact.PixelX,
+                        PixelY:   contact.PixelY,
+                        Pressure: contact.Pressure,
+                        Phase:    TouchPhase.Ended));
+
+                    _activeContacts.Remove(id);
+                }
+            }
+
             foreach (var tp in points)
             {
                 if (!reported.Add(tp.Id))
@@ -410,8 +440,37 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 //
                 // 本物のストロークは必ず Began から始まる。知らない指の
                 // 続きは、取りこぼしではなく遅れて届いた残りとみなす。
-                if (!wasActive && tp.Phase is not TouchPhase.Began)
+                //
+                // ただしホバーは別。触れる前の知らせなので、Began より
+                // 先に来るのが当たり前で、「知らない指」なのが正常な姿。
+                // ここで一緒に捨てていたため、浮かせたペンの位置が
+                // 一度も届いていなかった。
+                if (!wasActive && tp.Phase is not TouchPhase.Began
+                                           and not TouchPhase.Hovered)
                     continue;
+
+                // 触れている指がホバーになった＝画面から浮いた。
+                //
+                // ホバーは接触ではないので追跡から外す。ただ外すだけだと
+                // Windows には UP を送らないまま忘れることになり、
+                // 向こうではペンが触れたままになる。こちらは追跡を
+                // やめているので 1.2 秒の時間切れも働かず、あとから
+                // 届く「離した」も知らない指として捨てられる。
+                // 永久に押されっぱなしになる。
+                //
+                // 先に前の位置で離してから、ホバーとして送り直す。
+                if (wasActive && tp.Phase is TouchPhase.Hovered)
+                {
+                    frame.Add(new InjectedPointer(
+                        Id:       (int)existing.NativeId,
+                        PixelX:   existing.PixelX,
+                        PixelY:   existing.PixelY,
+                        Pressure: existing.Pressure,
+                        Phase:    TouchPhase.Ended));
+
+                    _activeContacts.Remove(tp.Id);
+                    wasActive = false;
+                }
 
                 // 覚えが残っているのに「押した」が来た。
                 //
