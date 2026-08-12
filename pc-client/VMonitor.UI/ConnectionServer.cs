@@ -2186,15 +2186,29 @@ public sealed class ConnectionServer
                 touchEvent.Points,
                 new DisplayTransform(displayResolution, Orientation.Portrait));
 
-            // 最初の 1 件と、以降は 100 件ごとに記録する。
-            // 毎回出すとログが映像より速く流れて読めなくなる。
-            if (count == 1 || count % 100 == 0)
+            // 押した・離したは必ず記録する。
+            //
+            // 以前は 100 件ごとにしか出しておらず、指やペンが「いつ
+            // 触れて、いつ離れたか」がログに残らなかった。ストロークの
+            // 切れ目こそ見たい情報で、そこが抜けていると原因を追えない。
+            // 動いている間の記録は多すぎるので、従来どおり間引く。
+            bool boundary = touchEvent.Points.Any(
+                p => p.Phase is TouchPhase.Began or TouchPhase.Ended
+                              or TouchPhase.Cancelled);
+
+            if (count == 1 || boundary || count % 100 == 0)
             {
                 var first = touchEvent.Points[0];
                 var pixel = injector.TransformPoint(first.X, first.Y);
 
                 _logger.Info("ConnectionServer",
-                    $"Touch #{count}: phase={first.Phase} norm=({first.X:F3},{first.Y:F3}) " +
+                    $"Touch #{count}: phase={first.Phase} " +
+                    // ペンとして届いているかどうかが分からないと、
+                    // タッチ扱いになっているのか、ペン注入の側の問題なのか
+                    // 切り分けられない。
+                    $"ペン={first.IsPen} 種別={injector.Mode} " +
+                    $"点数={touchEvent.Points.Count} " +
+                    $"norm=({first.X:F3},{first.Y:F3}) " +
                     $"→ pixel={pixel} 表示={displayResolution.Width}x{displayResolution.Height} " +
                     $"接触数={injector.ActiveContactCount} " +
                     $"注入成功={injector.LastInjectionSucceeded} " +
