@@ -398,6 +398,24 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 if (!wasActive && tp.Phase is TouchPhase.Ended or TouchPhase.Cancelled)
                     continue;
 
+                // 覚えが残っているのに「押した」が来た。
+                //
+                // 前の接触が離れないまま次が始まっている。前の位置で
+                // いったん離してから、新しい位置で始める。こうしないと
+                // 「離した位置から線が繋がる」ことになる。
+                if (wasActive && tp.Phase is TouchPhase.Began)
+                {
+                    frame.Add(new InjectedPointer(
+                        Id:       (int)existing.NativeId,
+                        PixelX:   existing.PixelX,
+                        PixelY:   existing.PixelY,
+                        Pressure: existing.Pressure,
+                        Phase:    TouchPhase.Ended));
+
+                    _activeContacts.Remove(tp.Id);
+                    wasActive = false;
+                }
+
                 var phase = NormalizePhase(tp.Phase, wasActive);
 
                 if (phase is TouchPhase.Began && _activeContacts.Count >= MaxContacts)
@@ -464,7 +482,14 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     /// </summary>
     private static TouchPhase NormalizePhase(TouchPhase reported, bool wasActive) => reported switch
     {
-        TouchPhase.Began when wasActive  => TouchPhase.Moved,
+        // Began を Moved に読み替えてはいけない。
+        //
+        // 「押した」を「動いた」にすると、こちらが覚えている前の位置から
+        // 新しい位置まで線が引かれる。実機では「ペンを離して書き直すと、
+        // 離した位置から繋がる」という形で出た。
+        //
+        // 覚えが残っているなら、それは前の接触が正しく離れていない。
+        // 読み替えではなく、先に離してから始める（BuildFrame を参照）。
         TouchPhase.Moved when !wasActive => TouchPhase.Began,
 
         // 知らない指の「離した」「取り消した」はここへ来ない。

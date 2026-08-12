@@ -104,4 +104,35 @@ public sealed class PenContactTests
         injector.InjectTouch(new[] { Pen(1, TouchPhase.Hovered) }, Screen);
         Assert.Equal(0, injector.ActiveContactCount);
     }
+
+    [Fact]
+    public void 離した覚えが無いまま押し直しても線が繋がらない()
+    {
+        var backend = new RecordingPointerInjectionBackend();
+        using var injector = new WindowsInkInjector(backend, ownsBackend: true);
+
+        // 書く
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Began) }, Screen);
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Moved) }, Screen);
+
+        // 「離した」が届かなかった。こちらは触れたままだと思っている。
+        Assert.Equal(1, injector.ActiveContactCount);
+
+        // 別の場所で書き始める
+        var again = new TouchPoint
+        {
+            Id = 1, X = 0.9, Y = 0.9, Pressure = 0.7,
+            Phase = TouchPhase.Began, IsPen = true,
+        };
+
+        injector.InjectTouch(new[] { again }, Screen);
+
+        // ここで Moved に読み替えると、前の位置から線が繋がる。
+        // 先に離してから始まっていること。
+        var last = backend.Frames[^1];
+
+        Assert.Contains(last, p => p.Phase == TouchPhase.Ended);
+        Assert.Contains(last, p => p.Phase == TouchPhase.Began);
+        Assert.DoesNotContain(last, p => p.Phase == TouchPhase.Moved);
+    }
 }

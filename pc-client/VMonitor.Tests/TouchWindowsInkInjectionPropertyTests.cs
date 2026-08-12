@@ -535,12 +535,20 @@ public class TouchWindowsInkInjectionPropertyTests
 
     /// <summary>
     /// 既に接触中の ID に再度 Began が届いた場合は、
-    /// 二重 DOWN を避けるため Moved に降格して注入しなければならない。
+    /// 前の接触をその場で離してから、新しく始めなければならない。
+    ///
+    /// 以前はここで Moved に降格させていた。二重 DOWN は避けられるが、
+    /// 「押した」を「動いた」に変えることになる。こちらが覚えている
+    /// 前の位置から新しい位置まで線が引かれるため、実機では
+    /// 「ペンを離して書き直すと、離した位置から繋がる」という形で出た。
+    ///
+    /// 覚えが残っているのに Began が来るということは、前の接触が
+    /// 正しく離れていない。読み替えではなく、離してから始める。
     ///
     /// Validates: Requirements 6.2
     /// </summary>
     [Fact]
-    public void DuplicateBegan_IsDemotedToMoved()
+    public void DuplicateBegan_ReleasesThenStartsAgain()
     {
         var injector = CreateSut(out var backend);
         var resolution = new Resolution(1920, 1080);
@@ -553,7 +561,13 @@ public class TouchWindowsInkInjectionPropertyTests
         injector.InjectTouch(began, transform);
 
         Assert.Equal(TouchPhase.Began, backend.Frames[0][0].Phase);
-        Assert.Equal(TouchPhase.Moved, backend.Frames[1][0].Phase);
+
+        // 2 回目は「離す」と「始める」が並ぶ。Moved は出ない。
+        var second = backend.Frames[1];
+
+        Assert.Contains(second, p => p.Phase == TouchPhase.Ended);
+        Assert.Contains(second, p => p.Phase == TouchPhase.Began);
+        Assert.DoesNotContain(second, p => p.Phase == TouchPhase.Moved);
     }
 
     /// <summary>
