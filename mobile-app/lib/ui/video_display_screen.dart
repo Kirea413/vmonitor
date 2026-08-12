@@ -686,13 +686,23 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
                   padding: const EdgeInsets.all(8),
                   color: Colors.black54,
                   child: Text(
-                    _decoderFps > 0
+                    // ポインタの受け取り状況。
+                    //
+                    // PC 側の記録では「離した」が 1 件も届いていない。
+                    // Flutter がそもそも up を出していないのか、出ている
+                    // のに送れていないのかは、PC 側からは区別が付かない。
+                    // down と up の数が合っているかを、ここで見る。
+                    'down ${touch.FlutterTouchInputProxy.downCount} '
+                        'up ${touch.FlutterTouchInputProxy.upCount} '
+                        'cancel ${touch.FlutterTouchInputProxy.cancelCount} '
+                        '(${touch.FlutterTouchInputProxy.lastKind})\n' +
+                    (_decoderFps > 0
                         ? '表示中 ${_decoderFps.toStringAsFixed(1)} fps  '
                           'デコード ${_decodeLatencyMs}ms\n'
                           '受信: $_totalFrames pkt  最終ch: $_lastChannel'
                         : '映像を待機中\n'
                           '受信: $_totalFrames pkt  映像: $_videoFrames frm\n'
-                          '最終ch: $_lastChannel  サイズ: $_lastFrameSize B',
+                          '最終ch: $_lastChannel  サイズ: $_lastFrameSize B'),
                     style: const TextStyle(color: Colors.white, fontSize: 11),
                   ),
                 ),

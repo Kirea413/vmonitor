@@ -209,6 +209,8 @@ class FlutterTouchInputProxy implements TouchInputProxy {
 
   /// [PointerDownEvent] を処理してポインターを登録し、TouchEvent を発行する。
   void onPointerDown(PointerDownEvent event) {
+    downCount++;
+    lastKind = event.kind.name;
     _activePointers[event.pointer] = event.localPosition;
     _emitEvent(event.pointer, event.localPosition, event.pressure,
         TouchPhase.began, _isPen(event.kind));
@@ -216,6 +218,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
 
   /// [PointerMoveEvent] を処理してポインター位置を更新し、TouchEvent を発行する。
   void onPointerMove(PointerMoveEvent event) {
+    moveCount++;
     _activePointers[event.pointer] = event.localPosition;
     _emitEvent(event.pointer, event.localPosition, event.pressure,
         TouchPhase.moved, _isPen(event.kind));
@@ -223,6 +226,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
 
   /// [PointerUpEvent] を処理してポインターを削除し、TouchEvent を発行する。
   void onPointerUp(PointerUpEvent event) {
+    upCount++;
     _activePointers.remove(event.pointer);
     _emitEvent(event.pointer, event.localPosition, event.pressure,
         TouchPhase.ended, _isPen(event.kind));
@@ -240,6 +244,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   }
 
   void onPointerCancel(PointerCancelEvent event) {
+    cancelCount++;
     _activePointers.remove(event.pointer);
     _emitEvent(event.pointer, event.localPosition, event.pressure,
         TouchPhase.cancelled, _isPen(event.kind));
@@ -296,6 +301,19 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     _emitEvent(first.key, first.value, _lastPressure[first.key] ?? 0.5,
         TouchPhase.moved, _lastIsPen[first.key] ?? false);
   }
+
+  /// Flutter から何を受け取ったかの数え上げ（切り分け用）。
+  ///
+  /// PC 側の記録では「離した」が 1 件も届いていなかった。遅れている
+  /// のではなく来ていない。ただ、それが
+  ///   ・Flutter がそもそも up を出していない
+  ///   ・出ているがこちらが送れていない
+  /// のどちらなのかは、PC 側からは区別が付かない。端末の画面に出す。
+  static int downCount = 0;
+  static int moveCount = 0;
+  static int upCount = 0;
+  static int cancelCount = 0;
+  static String lastKind = '-';
 
   /// 送り直すときに使う、直近の筆圧と種別。
   final Map<int, double> _lastPressure = {};
