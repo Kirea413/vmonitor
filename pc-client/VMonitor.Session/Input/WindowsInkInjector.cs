@@ -395,7 +395,22 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 //
                 // この知らせ自体は普通に届く。画面側の都合で接触を
                 // まとめて解放したあと、利用者が指を離せばこれが来る。
-                if (!wasActive && tp.Phase is TouchPhase.Ended or TouchPhase.Cancelled)
+                // 知らない指の知らせは、押した以外すべて捨てる。
+                //
+                // 離す知らせを Began に読み替えると接触が積み残る。
+                // 動いた知らせを Began に読み替えると、離した直後に
+                // もう一度押されてしまう。
+                //
+                // 端末は触れているあいだ 200ms ごとに現在の指を送る。
+                // 離した直後、その心拍が 1 通あとから届くことがある。
+                // これを「押した」と読むと、離したはずのペンが復活し、
+                // 1.2 秒の時間切れまで押されたまま残る。実機では
+                // 「離してちょっとしてから離れる。だから線が繋がる」
+                // という形で出た。
+                //
+                // 本物のストロークは必ず Began から始まる。知らない指の
+                // 続きは、取りこぼしではなく遅れて届いた残りとみなす。
+                if (!wasActive && tp.Phase is not TouchPhase.Began)
                     continue;
 
                 // 覚えが残っているのに「押した」が来た。
@@ -490,7 +505,7 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
         //
         // 覚えが残っているなら、それは前の接触が正しく離れていない。
         // 読み替えではなく、先に離してから始める（BuildFrame を参照）。
-        TouchPhase.Moved when !wasActive => TouchPhase.Began,
+        // Moved を Began に読み替えない（上で捨てている）。
 
         // 知らない指の「離した」「取り消した」はここへ来ない。
         // フレームに載せる前に捨てている（BuildFrame を参照）。

@@ -135,4 +135,22 @@ public sealed class PenContactTests
         Assert.Contains(last, p => p.Phase == TouchPhase.Began);
         Assert.DoesNotContain(last, p => p.Phase == TouchPhase.Moved);
     }
+
+    [Fact]
+    public void 離した直後に遅れて届いた心拍で復活しない()
+    {
+        using var injector = Create();
+
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Began) }, Screen);
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Ended) }, Screen);
+
+        Assert.Equal(0, injector.ActiveContactCount);
+
+        // 端末は触れているあいだ 200ms ごとに送る。離した直後、
+        // その 1 通が遅れて届くことがある。これで押し直されると、
+        // 次のストロークが前の位置から繋がる。
+        injector.InjectTouch(new[] { Pen(1, TouchPhase.Moved) }, Screen);
+
+        Assert.Equal(0, injector.ActiveContactCount);
+    }
 }

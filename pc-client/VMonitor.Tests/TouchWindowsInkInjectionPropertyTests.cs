@@ -510,16 +510,21 @@ public class TouchWindowsInkInjectionPropertyTests
     }
 
     /// <summary>
-    /// DOWN を受け取っていない ID に Moved が届いた場合、
-    /// Began (DOWN) に補正して注入しなければならない。
+    /// DOWN を受け取っていない ID に Moved が届いた場合は、捨てる。
     ///
-    /// Windows は DOWN のない UPDATE を拒否するため、
-    /// パケットロスや再接続でフェーズが欠けると以降の入力が全て失われる。
+    /// 以前は Began に補正していた。欠けたフェーズを補うつもりだったが、
+    /// 端末は触れているあいだ 200ms ごとに現在の指を送るため、離した
+    /// 直後にその 1 通が遅れて届くことがある。それを「押した」と読むと、
+    /// 離したはずのペンが復活し、時間切れまで押されたまま残る。実機では
+    /// 「離してちょっとしてから離れる。だから線が繋がる」という形で出た。
+    ///
+    /// 本物のストロークは必ず Began から始まる。知らない ID の続きは、
+    /// 取りこぼしではなく遅れて届いた残りとみなす。
     ///
     /// Validates: Requirements 6.2
     /// </summary>
     [Fact]
-    public void MovedWithoutPrecedingBegan_IsPromotedToBegan()
+    public void MovedWithoutPrecedingBegan_IsDropped()
     {
         var injector = CreateSut(out var backend);
         var resolution = new Resolution(1920, 1080);
@@ -528,9 +533,8 @@ public class TouchWindowsInkInjectionPropertyTests
         injector.InjectTouch(new List<TouchPoint>
         { new() { Id = 5, X = 0.5, Y = 0.5, Pressure = 1.0, Phase = TouchPhase.Moved } }, transform);
 
-        var frame = backend.LastFrame;
-        Assert.NotNull(frame);
-        Assert.Equal(TouchPhase.Began, frame![0].Phase);
+        Assert.Equal(0, injector.ActiveContactCount);
+        Assert.Empty(backend.Frames);
     }
 
     /// <summary>

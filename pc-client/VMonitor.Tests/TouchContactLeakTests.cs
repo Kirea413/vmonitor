@@ -14,6 +14,9 @@ namespace VMonitor.Tests;
 /// 二度と離されないまま積み残る。上限の 10 本に達した時点で、新しい指が
 /// すべて捨てられる。回すと全解放が走るので、そこだけ復活する。
 /// </summary>
+// 実時間の経過を待つテストが含まれる。並行に走らせると、負荷で
+// タイマーの発火が遅れて落ちることがある。ここだけ直列にする。
+[Collection("実時間に依存するテスト")]
 public sealed class TouchContactLeakTests
 {
     private static readonly DisplayTransform Screen =
@@ -112,7 +115,7 @@ public sealed class TouchContactLeakTests
         // 届かなかったということ。押しっぱなしにしない。
         //
         // 見切りは 1.2 秒。余裕を持って待つ。
-        await Task.Delay(2_000);
+        await Task.Delay(4_000);
 
         Assert.Equal(0, injector.ActiveContactCount);
     }
@@ -125,9 +128,13 @@ public sealed class TouchContactLeakTests
         injector.InjectTouch(new[] { Point(4, TouchPhase.Began) }, Screen);
 
         // 長押しの最中。指は動かないが、端末は送り続けている。
-        for (int i = 0; i < 8; i++)
+        //
+        // 実機は 200ms ごとだが、ここでは 80ms ごとに送る。
+        // 他のテストと並行に走ると待ち時間が伸びることがあり、
+        // 実機どおりの間隔だと見切り (1.2 秒) に届いてしまう。
+        for (int i = 0; i < 20; i++)
         {
-            await Task.Delay(200);
+            await Task.Delay(80);
             injector.InjectTouch(new[] { Point(4, TouchPhase.Moved) }, Screen);
         }
 
