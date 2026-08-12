@@ -71,3 +71,7 @@ desktop.ini
 
 # Sideloadly が起動フォルダに吐くログ
 sideloadlydaemon.log
+
+# gen-l10n が作るもの。arb から毎回生成される。
+mobile-app/lib/l10n/app_localizations*.dart
+mobile-app/l10n-missing.txt

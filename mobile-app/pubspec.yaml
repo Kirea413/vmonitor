@@ -12,6 +12,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  # 多言語対応。訳文は l10n/*.arb に置き、flutter gen-l10n が
+  # AppLocalizations を作る。言語を足すときは arb を 1 つ増やすだけ。
+  flutter_localizations:
+    sdk: flutter
+  intl: any
   multicast_dns: ^0.3.2+1
   shared_preferences: ^2.5.5
 
@@ -25,3 +31,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  generate: true

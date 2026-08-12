@@ -1,0 +1,67 @@
+{
+  "@@locale": "ja",
+
+  "appTitle": "vmonitor",
+  "homeTitle": "vmonitor — PC 接続",
+
+  "usbTitle": "USB 直結",
+  "usbSubtitle": "いちばん遅延が少ない繋ぎ方です。",
+  "usbConnect": "USB で接続",
+  "usbWaiting": "待機中",
+  "usbNotAttached": "PC とケーブルで繋ぎ、PC 側で vmonitor を起動してください。",
+  "usbPcAlive": "PC と通信できています",
+  "usbPcSilent": "PC が応答しません",
+  "usbNoResponse": "ケーブルは繋がっていますが、PC 側の vmonitor から応答がありません。",
+  "usbStartVmonitor": "PC で vmonitor を起動してください。",
+
+  "adbTitle": "ADB 経由で接続",
+  "adbSubtitle": "USB 直結が使えないときの代わりです。",
+  "adbHint": "PC 側で adb reverse tcp:7979 tcp:7979 を実行しておいてください。",
+
+  "listenTitle": "PC から接続してもらう",
+  "listenHint": "PC 側の vmonitor に、次を入力してください。",
+  "listenPreparing": "待ち受けを準備しています…",
+  "listenNoWifi": "Wi-Fi に接続すると、この端末のアドレスがここに出ます。",
+  "listenNotConnected": "Wi-Fi に繋がっていないようです。",
+  "listenFailed": "待ち受けを開始できませんでした: {reason}",
+  "@listenFailed": { "placeholders": { "reason": {} } },
+
+  "wifiTitle": "Wi-Fi で PC に繋ぐ",
+  "wifiSubtitle": "PC と同じ Wi-Fi に繋がっている必要があります。",
+  "wifiSearch": "PC を自動で探す",
+  "wifiSearching": "Wi-Fi 上の PC を検索しています…",
+  "wifiSearchTakesTime": "最大 10 秒かかることがあります",
+  "wifiManualHint": "PC の IP アドレスを直接入れて繋ぎます（PC 側で ipconfig で確認）。",
+  "wifiConnectToAddress": "このアドレスに接続",
+  "foundPcs": "見つかった PC ({count} 台)",
+  "@foundPcs": { "placeholders": { "count": { "type": "int" } } },
+
+  "fieldIpAddress": "IP アドレス",
+  "fieldIpExample": "例: 192.168.1.10",
+  "fieldPort": "ポート",
+
+  "connecting": "{name} に接続中…",
+  "@connecting": { "placeholders": { "name": {} } },
+  "connected": "{name} に接続しました",
+  "@connected": { "placeholders": { "name": {} } },
+  "establishing": "セッションを確立しています…",
+  "waitingPcApproval": "PC 側の承認を待っています",
+  "pcApprovalHint": "PC の画面に確認が出ています。\n「はい」を押すと映像が始まります。",
+  "pcDenied": "PC 側で許可されませんでした。",
+
+  "timeoutTitle": "接続タイムアウト",
+  "timeoutBody": "{name} への接続が 10 秒以内に完了しませんでした。\nPC クライアントが起動しているか、IP アドレスが正しいか確認してください。",
+  "@timeoutBody": { "placeholders": { "name": {} } },
+
+  "approveTitle": "PC から接続の要求",
+  "approveBody": "PC がこの端末に画面を映そうとしています。\n許可しますか？",
+  "approveAllow": "許可",
+  "approveDeny": "拒否",
+
+  "actionRetry": "再試行",
+  "actionBack": "戻る",
+  "actionCancel": "やめる",
+  "actionConnect": "接続",
+  "actionDetails": "詳細",
+  "stateDisconnected": "未接続"
+}

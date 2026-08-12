@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../transport/aoa_transport.dart';
 import '../transport/connect_protocol.dart';
 import '../transport/relay_transport.dart';
@@ -48,6 +49,12 @@ enum _ScreenState {
 }
 
 class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
+  /// この画面の訳文。
+  ///
+  /// 各メソッドで L.of(context) と書くと読みにくいので、まとめて受ける。
+  /// build の外（ダイアログの組み立てなど）からも使う。
+  L get t => L.of(context);
+
   static const Duration _discoveryTimeout = Duration(seconds: 5);
   static const Duration _connectionTimeout = Duration(seconds: 10);
 
@@ -514,18 +521,18 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
           barrierDismissible: false,
           builder: (dialogContext) => AlertDialog(
             icon: const Icon(Icons.desktop_windows, size: 32),
-            title: const Text('PC から接続の要求'),
+            title: Text(t.approveTitle),
             content: const Text(
               'PC がこの端末に画面を映そうとしています。\n許可しますか？',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('拒否'),
+                child: Text(t.approveDeny),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('許可'),
+                child: Text(t.approveAllow),
               ),
             ],
           ),
@@ -689,8 +696,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       setState(() => _screenState = _ScreenState.idle);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('PC 側で許可されませんでした。'),
+        SnackBar(
+          content: Text(t.pcDenied),
         ),
       );
       return;
@@ -822,7 +829,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PC 側で許可されませんでした。')),
+        SnackBar(content: Text(t.pcDenied)),
       );
       return;
     }
@@ -917,7 +924,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('vmonitor — PC 接続'),
+        title: Text(t.homeTitle),
         actions: [
           if (_screenState == _ScreenState.idle)
             IconButton(
@@ -1031,27 +1038,26 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       children: [
         _buildCardHeader(
           icon: Icons.usb,
-          title: 'USB 直結',
+          title: t.usbTitle,
           // 段階を分けて出す。
           //
           // 「ケーブルが挿さっている」と「相手で vmonitor が動いている」は
           // 別のこと。PC 側のアプリを閉じても端末はアクセサリーモードの
           // まま残るので、挿さっているだけで繋げると思わせてはいけない。
           badge: !_usbAttached
-              ? '未接続'
+              ? t.stateDisconnected
               : _pcAlive
-                  ? 'PC と通信できています'
-                  : 'PC が応答しません',
+                  ? t.usbPcAlive
+                  : t.usbPcSilent,
           badgeIsGood: _usbAttached && _pcAlive,
         ),
         const SizedBox(height: 4),
         Text(
           !_usbAttached
-              ? 'PC とケーブルで繋ぎ、PC 側で vmonitor を起動してください。'
+              ? t.usbNotAttached
               : _pcAlive
-                  ? 'いちばん遅延が少ない繋ぎ方です。'
-                  : 'ケーブルは繋がっていますが、PC 側の vmonitor から応答がありません。'
-                    'PC で vmonitor を起動してください。',
+                  ? t.usbSubtitle
+                  : t.usbNoResponse,
           style: TextStyle(
             color: _usbAttached && !_pcAlive ? Colors.orange : Colors.grey,
             fontSize: 12,
@@ -1060,7 +1066,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
         const SizedBox(height: 12),
         FilledButton.icon(
           icon: const Icon(Icons.usb),
-          label: const Text('USB で接続'),
+          label: Text(t.usbConnect),
           // 相手が応答しているときだけ押せる。
           onPressed: (_usbAttached && _pcAlive) ? _connectUsbDirect : null,
           style: FilledButton.styleFrom(
@@ -1071,9 +1077,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
         // 普段は要らないので畳んでおく。
         _buildAdvanced(
           children: [
-            const Text(
-              'USB 直結が使えないときの代わりです。'
-              'PC 側で adb reverse tcp:7979 tcp:7979 を実行しておいてください。',
+            Text(
+              t.adbSubtitle,
               style: TextStyle(color: Colors.grey, fontSize: 12),
             ),
             const SizedBox(height: 8),
@@ -1082,7 +1087,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(40),
               ),
-              child: const Text('ADB 経由で接続'),
+              child: Text(t.adbTitle),
             ),
           ],
         ),
@@ -1099,7 +1104,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
         tilePadding: EdgeInsets.zero,
         childrenPadding: const EdgeInsets.only(bottom: 8),
         expandedCrossAxisAlignment: CrossAxisAlignment.start,
-        title: const Text('詳細', style: TextStyle(fontSize: 13)),
+        title: Text(t.actionDetails, style: TextStyle(fontSize: 13)),
         children: children,
       ),
     );
@@ -1110,17 +1115,17 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   Widget _buildWifiCard() {
     return _buildCard(
       children: [
-        _buildCardHeader(icon: Icons.wifi, title: 'Wi-Fi で PC に繋ぐ'),
+        _buildCardHeader(icon: Icons.wifi, title: t.wifiTitle),
         const SizedBox(height: 4),
-        const Text(
-          'PC と同じ Wi-Fi に繋がっている必要があります。',
+        Text(
+          t.wifiSubtitle,
           style: TextStyle(color: Colors.grey, fontSize: 12),
         ),
         const SizedBox(height: 12),
 
         OutlinedButton.icon(
           icon: const Icon(Icons.wifi_find),
-          label: const Text('PC を自動で探す'),
+          label: Text(t.wifiSearch),
           onPressed: _startDiscovery,
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(44),
@@ -1145,7 +1150,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
                   _transportFactory = WifiTransport.new;
                   unawaited(_connectWithApproval(device));
                 },
-                child: const Text('接続'),
+                child: Text(t.actionConnect),
               ),
             ),
           ),
@@ -1155,8 +1160,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
         // 普段は要らないので畳んでおく。
         _buildAdvanced(
           children: [
-            const Text(
-              'PC の IP アドレスを直接入れて繋ぎます（PC 側で ipconfig で確認）。',
+            Text(
+              t.wifiManualHint,
               style: TextStyle(color: Colors.grey, fontSize: 12),
             ),
             const SizedBox(height: 12),
@@ -1166,9 +1171,9 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
                   flex: 3,
                   child: TextField(
                     controller: _ipController,
-                    decoration: const InputDecoration(
-                      labelText: 'IP アドレス',
-                      hintText: '例: 192.168.1.10',
+                    decoration: InputDecoration(
+                      labelText: t.fieldIpAddress,
+                      hintText: t.fieldIpExample,
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -1180,8 +1185,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
                 Expanded(
                   child: TextField(
                     controller: _portController,
-                    decoration: const InputDecoration(
-                      labelText: 'ポート',
+                    decoration: InputDecoration(
+                      labelText: t.fieldPort,
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -1193,7 +1198,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             const SizedBox(height: 12),
             OutlinedButton.icon(
               icon: const Icon(Icons.cable),
-              label: const Text('このアドレスに接続'),
+              label: Text(t.wifiConnectToAddress),
               onPressed: _connectManual,
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(40),
@@ -1219,29 +1224,28 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       children: [
         _buildCardHeader(
           icon: Icons.desktop_windows,
-          title: 'PC から接続してもらう',
-          badge: port != null ? '待機中' : null,
+          title: t.listenTitle,
+          badge: port != null ? t.usbWaiting : null,
         ),
         const SizedBox(height: 4),
 
         if (error != null)
           Text(error, style: const TextStyle(color: Colors.red, fontSize: 12))
         else if (port == null)
-          const Text(
-            '待ち受けを準備しています…',
+          Text(
+            t.listenPreparing,
             style: TextStyle(color: Colors.grey, fontSize: 12),
           )
         else ...[
-          const Text(
-            'PC 側の vmonitor に、次を入力してください。',
+          Text(
+            t.listenHint,
             style: TextStyle(color: Colors.grey, fontSize: 12),
           ),
           const SizedBox(height: 10),
 
           if (_localAddresses.isEmpty)
-            const Text(
-              'Wi-Fi に繋がっていないようです。'
-              'Wi-Fi に接続すると、この端末のアドレスがここに出ます。',
+            Text(
+              t.listenNotConnected,
               style: TextStyle(color: Colors.orange, fontSize: 12),
             )
           else
@@ -1269,8 +1273,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             ),
 
           const SizedBox(height: 4),
-          const Text(
-            'PC と同じ Wi-Fi に繋がっている必要があります。',
+          Text(
+            t.wifiSubtitle,
             style: TextStyle(color: Colors.grey, fontSize: 11),
           ),
         ],
@@ -1288,9 +1292,9 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const CircularProgressIndicator(),
-            const SizedBox(height: 24),
-            const Text(
-              'PC 側の承認を待っています',
+            SizedBox(height: 24),
+            Text(
+              t.waitingPcApproval,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -1309,7 +1313,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
                 _pendingApproval = null;
                 setState(() => _screenState = _ScreenState.idle);
               },
-              child: const Text('やめる'),
+              child: Text(t.actionCancel),
             ),
           ],
         ),
@@ -1320,14 +1324,14 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   // ── 探索中 ──────────────────────────────────────────────────
 
   Widget _buildDiscoveringView() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 24),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 24),
           Text(
-            'Wi-Fi 上の PC を検索しています…',
+            t.wifiSearching,
             style: TextStyle(fontSize: 16),
           ),
         ],
@@ -1350,8 +1354,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             style: const TextStyle(fontSize: 16),
           ),
           const SizedBox(height: 8),
-          const Text(
-            '最大 10 秒かかることがあります',
+          Text(
+            t.wifiSearchTakesTime,
             style: TextStyle(color: Colors.grey),
           ),
         ],
@@ -1371,8 +1375,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
           children: [
             const Icon(Icons.wifi_off, size: 64, color: Colors.orange),
             const SizedBox(height: 16),
-            const Text(
-              '接続タイムアウト',
+            Text(
+              t.timeoutTitle,
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -1385,7 +1389,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             const SizedBox(height: 24),
             ElevatedButton.icon(
               icon: const Icon(Icons.refresh),
-              label: const Text('再試行'),
+              label: Text(t.actionRetry),
               onPressed: _retry,
             ),
             const SizedBox(height: 12),
@@ -1394,7 +1398,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
                 setState(() => _screenState = _ScreenState.idle);
                 _startListening();
               },
-              child: const Text('戻る'),
+              child: Text(t.actionBack),
             ),
           ],
         ),
@@ -1417,7 +1421,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const Text('セッションを確立しています…'),
+          Text(t.establishing),
         ],
       ),
     );

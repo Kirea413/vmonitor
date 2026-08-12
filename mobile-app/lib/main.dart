@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'l10n/app_localizations.dart';
 import 'ui/app_shell.dart';
 import 'ui/display_preferences.dart';
 
@@ -19,13 +20,26 @@ class VMonitorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'vmonitor',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      home: const AppShell(),
+    // 言語の選択を変えたら、その場で描き直す。
+    return ListenableBuilder(
+      listenable: displayPreferences,
+      builder: (context, _) {
+        return MaterialApp(
+          onGenerateTitle: (context) => L.of(context).appTitle,
+
+          // 端末の設定に従う（locale が null）。設定で選ばれていれば
+          // そちらを優先する。対応していない言語のときは英語に落ちる。
+          locale: displayPreferences.locale,
+          localizationsDelegates: L.localizationsDelegates,
+          supportedLocales: L.supportedLocales,
+
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+            useMaterial3: true,
+          ),
+          home: const AppShell(),
+        );
+      },
     );
   }
 }

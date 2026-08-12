@@ -1,0 +1,9 @@
+# 訳文の置き場と、生成されるクラスの設定。
+arb-dir: lib/l10n
+template-arb-file: app_ja.arb
+output-localization-file: app_localizations.dart
+output-class: L
+# 訳が無いキーは元の言語（日本語）のまま出す。
+# 抜けを空白にすると、画面がところどころ消えて見える。
+untranslated-messages-file: l10n-missing.txt
+nullable-getter: false

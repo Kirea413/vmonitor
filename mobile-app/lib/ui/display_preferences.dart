@@ -77,6 +77,7 @@ class DisplayPreferences extends ChangeNotifier {
   static const String _keyGesture     = 'display.disconnectGesture';
   static const String _keyConfirm     = 'display.confirmBeforeDisconnect';
   static const String _keyKeepAwake   = 'display.keepScreenAwake';
+  static const String _keyLocale      = 'display.locale';
   static const String _keyKeepBright  = 'display.keepScreenBright';
   static const String _keyBrightness  = 'display.screenBrightness';
 
@@ -109,6 +110,12 @@ class DisplayPreferences extends ChangeNotifier {
   DisconnectGesture _disconnectGesture = DisconnectGesture.threeFingerSwipeDown;
   bool _confirmBeforeDisconnect = true;
   bool _keepScreenAwake  = true;
+
+  /// 表示する言語。null なら端末の設定に従う。
+  ///
+  /// 端末が日本語なら日本語、それ以外は英語になる。合わない人が
+  /// 自分で選べるよう、設定でも上書きできるようにしてある。
+  Locale? _locale;
   bool _keepScreenBright = true;
   double _screenBrightness = 1.0;
 
@@ -172,6 +179,15 @@ class DisplayPreferences extends ChangeNotifier {
 
   Future<void> setConfirmBeforeDisconnect(bool value) async {
     _confirmBeforeDisconnect = value;
+    notifyListeners();
+    await _save();
+  }
+
+  /// 表示する言語。null は「端末の設定に従う」。
+  Locale? get locale => _locale;
+
+  Future<void> setLocale(Locale? value) async {
+    _locale = value;
     notifyListeners();
     await _save();
   }
@@ -274,6 +290,9 @@ class DisplayPreferences extends ChangeNotifier {
 
       _confirmBeforeDisconnect = prefs.getBool(_keyConfirm) ?? true;
       _keepScreenAwake         = prefs.getBool(_keyKeepAwake) ?? true;
+
+      final code = prefs.getString(_keyLocale);
+      _locale = (code == null || code.isEmpty) ? null : Locale(code);
       _keepScreenBright        = prefs.getBool(_keyKeepBright) ?? true;
 
       _screenBrightness =
@@ -347,6 +366,7 @@ class DisplayPreferences extends ChangeNotifier {
       await prefs.setInt(_keyGesture,        _disconnectGesture.index);
       await prefs.setBool(_keyConfirm,       _confirmBeforeDisconnect);
       await prefs.setBool(_keyKeepAwake,     _keepScreenAwake);
+      await prefs.setString(_keyLocale,      _locale?.languageCode ?? '');
       await prefs.setBool(_keyKeepBright,    _keepScreenBright);
       await prefs.setDouble(_keyBrightness,  _screenBrightness);
     } catch (_) {

@@ -1,0 +1,67 @@
+{
+  "@@locale": "en",
+
+  "appTitle": "vmonitor",
+  "homeTitle": "vmonitor — Connect to a PC",
+
+  "usbTitle": "USB cable",
+  "usbSubtitle": "The lowest-latency way to connect.",
+  "usbConnect": "Connect over USB",
+  "usbWaiting": "Waiting",
+  "usbNotAttached": "Connect the cable and start vmonitor on the PC.",
+  "usbPcAlive": "Talking to the PC",
+  "usbPcSilent": "The PC is not responding",
+  "usbNoResponse": "The cable is connected, but vmonitor on the PC is not answering.",
+  "usbStartVmonitor": "Start vmonitor on the PC.",
+
+  "adbTitle": "Connect over ADB",
+  "adbSubtitle": "A fallback for when the direct USB link is unavailable.",
+  "adbHint": "Run adb reverse tcp:7979 tcp:7979 on the PC first.",
+
+  "listenTitle": "Let the PC connect",
+  "listenHint": "Enter the following on the PC.",
+  "listenPreparing": "Getting ready to listen…",
+  "listenNoWifi": "Connect to Wi-Fi and this device's address will appear here.",
+  "listenNotConnected": "This device does not seem to be on Wi-Fi.",
+  "listenFailed": "Could not start listening: {reason}",
+  "@listenFailed": { "placeholders": { "reason": {} } },
+
+  "wifiTitle": "Connect over Wi-Fi",
+  "wifiSubtitle": "Both devices must be on the same Wi-Fi network.",
+  "wifiSearch": "Find PCs automatically",
+  "wifiSearching": "Looking for PCs on this network…",
+  "wifiSearchTakesTime": "This can take up to 10 seconds",
+  "wifiManualHint": "Enter the PC's IP address directly (run ipconfig on the PC to find it).",
+  "wifiConnectToAddress": "Connect to this address",
+  "foundPcs": "{count, plural, =1{1 PC found} other{{count} PCs found}}",
+  "@foundPcs": { "placeholders": { "count": { "type": "int" } } },
+
+  "fieldIpAddress": "IP address",
+  "fieldIpExample": "e.g. 192.168.1.10",
+  "fieldPort": "Port",
+
+  "connecting": "Connecting to {name}…",
+  "@connecting": { "placeholders": { "name": {} } },
+  "connected": "Connected to {name}",
+  "@connected": { "placeholders": { "name": {} } },
+  "establishing": "Establishing the session…",
+  "waitingPcApproval": "Waiting for the PC to approve",
+  "pcApprovalHint": "A prompt is showing on the PC.\nChoose Yes to start the video.",
+  "pcDenied": "The PC did not allow the connection.",
+
+  "timeoutTitle": "Connection timed out",
+  "timeoutBody": "Could not reach {name} within 10 seconds.\nCheck that the PC client is running and that the IP address is correct.",
+  "@timeoutBody": { "placeholders": { "name": {} } },
+
+  "approveTitle": "A PC wants to connect",
+  "approveBody": "A PC is asking to show its screen on this device.\nAllow it?",
+  "approveAllow": "Allow",
+  "approveDeny": "Deny",
+
+  "actionRetry": "Try again",
+  "actionBack": "Back",
+  "actionCancel": "Cancel",
+  "actionConnect": "Connect",
+  "actionDetails": "Details",
+  "stateDisconnected": "Not connected"
+}
