@@ -1,5 +1,6 @@
 using System.Numerics;
 using VMonitor.Core.Interfaces;
+using System.Linq;
 using VMonitor.Core.Models;
 
 namespace VMonitor.Session.Input;
@@ -183,6 +184,36 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
 
         if (points.Count == 0)
             return;
+
+        // ペンか指かは、届いた点そのものから決める。
+        //
+        // 以前はこの判断を呼び出し側（ConnectionServer）に置いていた。
+        // 種別と注入の仕方が別々の場所にあると、片方だけ直したときに
+        // 食い違う。注入する側が自分で決めれば、どこから呼ばれても
+        // 辻褄が合う。
+        //
+        // 種別が変わるときは、掴んだままの接触を解放してから切り替わる
+        // （Mode の setter が面倒を見る）。
+        var wanted = points.Any(p => p.IsPen)
+            ? PointerInjectionMode.Pen
+            : PointerInjectionMode.Touch;
+
+        if (Mode != wanted) Mode = wanted;
+
+        // ペンで書いている間は、ペンの点だけを送る。
+        //
+        // Windows のペン注入は 1 本しか扱えず、バックエンドはフレームの
+        // 先頭 1 点だけを注入する。指の接触が混じっていると、ペンの点が
+        // 先頭に来ないことがあり、その回の注入が丸ごと捨てられる。
+        // 「離した」が捨てられると、Windows から見てペンは押されたまま
+        // になる。実機では「タッチペンが押されっぱなしになる」という
+        // 形で出た。
+        //
+        // 手のひらが当たって指の点が混ざるのは、ペンを使えば普通に
+        // 起きる。捨てるのは指のほうでよい（ペンで書いている最中に
+        // 指の接触を送っても、どのみち注入されない）。
+        if (Mode == PointerInjectionMode.Pen && points.Any(p => p.IsPen))
+            points = points.Where(p => p.IsPen).ToList();
 
         var matrix = ResolveMatrix(transform);
         var frame  = BuildFrame(points, transform, matrix);

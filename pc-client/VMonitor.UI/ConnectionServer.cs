@@ -2181,12 +2181,7 @@ public sealed class ConnectionServer
             //
             // 種別が変わるときは、掴んだままの接触を解放してから
             // 切り替わる（Mode の setter が面倒を見る）。
-            var wanted = touchEvent.Points.Any(p => p.IsPen)
-                ? PointerInjectionMode.Pen
-                : PointerInjectionMode.Touch;
-
-            if (injector.Mode != wanted) injector.Mode = wanted;
-
+            // 種別の判断は注入側が持つ。ここで二重に決めない。
             injector.InjectTouch(
                 touchEvent.Points,
                 new DisplayTransform(displayResolution, Orientation.Portrait));
