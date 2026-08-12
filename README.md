@@ -1,6 +1,13 @@
-# vmonitor
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/icon-dark-256.png">
+    <img src="docs/assets/icon-256.png" width="128" height="128" alt="vmonitor">
+  </picture>
+</p>
 
-**スマートフォンを Windows PC の 2 枚目のモニターにする。**
+<h1 align="center">vmonitor</h1>
+
+<p align="center"><strong>スマートフォンを Windows PC の 2 枚目のモニターにする。</strong></p>
 
 余っているスマホやタブレットを、ケーブル 1 本、あるいは Wi-Fi だけで
 拡張ディスプレイとして使えるようにします。ミラーリングではなく、

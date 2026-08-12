@@ -173,6 +173,81 @@ $store.Save($storePath, [System.Drawing.Imaging.ImageFormat]::Png)
 $store.Dispose()
 Write-Host "    playstore-512.png"
 
+<#
+.SYNOPSIS
+    README に載せる印を 1 枚描く。
+
+    地の色を選べるようにしてある。GitHub の README は明暗どちらの
+    見た目でも開かれるので、同じ絵を 2 通り用意して切り替える。
+    明るい地の絵を暗い画面に置くと、白い四角が浮いて見える。
+#>
+function New-MarkBitmap([int]$size, $plateColor, [bool]$rounded = $true) {
+    $bmp = New-Object System.Drawing.Bitmap($size, $size,
+        [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode     = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.Clear([System.Drawing.Color]::Transparent)
+
+    if ($rounded) {
+        $platePath  = New-RoundedPath 0 0 $size $size ($size * 0.20)
+        $plateBrush = New-Object System.Drawing.SolidBrush($plateColor)
+        $g.FillPath($plateBrush, $platePath)
+        $plateBrush.Dispose(); $platePath.Dispose()
+    }
+
+    $inset = $size * 0.11
+    $k     = ($size - $inset * 2) / 64.0
+
+    function FillMark([double]$x, [double]$y, [double]$w, [double]$h, [double]$r, $color) {
+        $path  = New-RoundedPath ($inset + $x * $k) ($inset + $y * $k) ($w * $k) ($h * $k) ($r * $k)
+        $brush = New-Object System.Drawing.SolidBrush($color)
+        $g.FillPath($brush, $path)
+        $brush.Dispose(); $path.Dispose()
+    }
+
+    # PC の画面（横長）と、その隣に立つスマホ（縦長）
+    FillMark 2 12 38 27 3.5 $Accent
+
+    FillMark 36 20 26 38 6 $Ink
+    FillMark 40 24 18 30 3 $plateColor
+    FillMark 43 28 12 22 2 $Accent
+
+    $g.Dispose()
+    return $bmp
+}
+
+# ── README 用 ──────────────────────────────────────────────────────────
+#
+# 同じ絵を、明るい地と暗い地の 2 通りで出す。
+# README 側で prefers-color-scheme を見て出し分ける。
+#
+# 大きさを複数そろえるのは、README では小さく、配布ページや
+# SNS の見出しでは大きく使うため。縮小はきれいに効くが、
+# 拡大は粗が出る。
+Write-Host ''
+Write-Host '==> README 用の印を書き出しています...' -ForegroundColor Cyan
+
+$DocsAssets = Join-Path (Join-Path $Root 'docs') 'assets'
+New-Item -ItemType Directory -Force -Path $DocsAssets | Out-Null
+
+$InkPlate = [System.Drawing.Color]::FromArgb(0x13, 0x1A, 0x24)   # 暗い地
+
+foreach ($size in @(64, 128, 256, 512)) {
+    $light = New-MarkBitmap $size $Plate
+    $light.Save((Join-Path $DocsAssets "icon-$size.png"),
+                [System.Drawing.Imaging.ImageFormat]::Png)
+    $light.Dispose()
+
+    $dark = New-MarkBitmap $size $InkPlate
+    $dark.Save((Join-Path $DocsAssets "icon-dark-$size.png"),
+               [System.Drawing.Imaging.ImageFormat]::Png)
+    $dark.Dispose()
+
+    Write-Host ("    icon-{0}.png / icon-dark-{0}.png" -f $size)
+}
+
 # ── iOS ────────────────────────────────────────────────────────────────
 #
 # iOS のアイコンには 2 つ決まりがある。
