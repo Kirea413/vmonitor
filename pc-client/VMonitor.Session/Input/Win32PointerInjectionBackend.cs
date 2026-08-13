@@ -192,11 +192,15 @@ public sealed class Win32PointerInjectionBackend : IPointerInjectionBackend
             {
                 pointerInfo = BuildPointerInfo(point, PT_PEN),
                 penFlags    = PEN_FLAG_NONE,
-                penMask     = PEN_MASK_PRESSURE,
+
+                // 傾きも渡す。これがあると、筆先の向きを見るアプリ
+                // （OneNote や Photoshop のブラシなど）が本来の描き味に
+                // なる。渡さないと常に垂直に立てている扱いになる。
+                penMask     = PEN_MASK_PRESSURE | PEN_MASK_TILT_X | PEN_MASK_TILT_Y,
                 pressure    = ToNativePressure(point.Pressure, PenPressureMax),
                 rotation    = 0,
-                tiltX       = 0,
-                tiltY       = 0,
+                tiltX       = ClampTilt(point.TiltX),
+                tiltY       = ClampTilt(point.TiltY),
             }
         };
 
@@ -279,6 +283,14 @@ public sealed class Win32PointerInjectionBackend : IPointerInjectionBackend
 
         _ => POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT
     };
+
+    /// <summary>
+    /// ペンの傾きを Windows が受け付ける範囲に収める。
+    ///
+    /// -90〜90 度の外を渡すと注入そのものが弾かれ、
+    /// 「アクティブな全接触の取り消し」を巻き添えで食らう。
+    /// </summary>
+    internal static int ClampTilt(int degrees) => Math.Clamp(degrees, -90, 90);
 
     /// <summary>正規化筆圧 [0.0, 1.0] を Windows の 1〜1024 に変換する。</summary>
     internal static uint ToNativePressure(double pressure)

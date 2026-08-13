@@ -41,6 +41,16 @@ public class TouchPoint
     /// 線にならない。既定は false（古い端末は種別を送ってこない）。
     /// </remarks>
     public bool IsPen { get; init; }
+
+    /// <summary>ペンを右へ倒した角度（度、-90〜90）。立てていれば 0。</summary>
+    /// <remarks>
+    /// Windows の POINTER_PEN_INFO と同じ取りかた。指では常に 0。
+    /// 傾きを送ってこない端末でも 0 になる。
+    /// </remarks>
+    public int TiltX { get; init; }
+
+    /// <summary>ペンを手前（画面の下）へ倒した角度（度、-90〜90）。</summary>
+    public int TiltY { get; init; }
 }
 
 /// <summary>タッチポイントのライフサイクルフェーズ。</summary>

@@ -183,7 +183,8 @@ public class TouchEventCodecPropertyTests
     public void EncodedSize_MatchesWireFormatDefinedByMobileApp()
     {
         Assert.Equal(10, TouchEventCodec.HeaderSize);
-        Assert.Equal(18, TouchEventCodec.PointSize);
+        Assert.Equal(20, TouchEventCodec.PointSize);
+        Assert.Equal(18, TouchEventCodec.PointSizeWithoutTilt);
         Assert.Equal(17, TouchEventCodec.LegacyPointSize);
 
         var threePoints = TouchEventCodec.Encode(new TouchEvent

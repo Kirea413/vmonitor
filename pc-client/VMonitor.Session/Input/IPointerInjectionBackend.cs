@@ -28,12 +28,16 @@ public enum PointerInjectionMode
 /// <param name="PixelY">仮想デスクトップ上の Y ピクセル座標。</param>
 /// <param name="Pressure">筆圧 [0.0, 1.0]。</param>
 /// <param name="Phase">このポインターのライフサイクルフェーズ。</param>
+/// <param name="TiltX">ペンを右へ倒した角度（度、-90〜90）。指では 0。</param>
+/// <param name="TiltY">ペンを手前へ倒した角度（度、-90〜90）。指では 0。</param>
 public readonly record struct InjectedPointer(
     int Id,
     int PixelX,
     int PixelY,
     double Pressure,
-    TouchPhase Phase
+    TouchPhase Phase,
+    int TiltX = 0,
+    int TiltY = 0
 );
 
 /// <summary>

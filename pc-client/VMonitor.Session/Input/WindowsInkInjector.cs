@@ -95,7 +95,8 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     /// こちらで離すために持つ。
     /// </param>
     private readonly record struct ActiveContact(
-        uint NativeId, int PixelX, int PixelY, double Pressure, long RefreshedAtMs);
+        uint NativeId, int PixelX, int PixelY, double Pressure, long RefreshedAtMs,
+        int TiltX = 0, int TiltY = 0);
 
     // ── 構築 ───────────────────────────────────────────────────────────────
 
@@ -304,7 +305,9 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                         PixelX:   contact.PixelX,
                         PixelY:   contact.PixelY,
                         Pressure: contact.Pressure,
-                        Phase:    TouchPhase.Moved));
+                        Phase:    TouchPhase.Moved,
+                        TiltX:    contact.TiltX,
+                        TiltY:    contact.TiltY));
                 }
 
                 foreach (var id in stale) _activeContacts.Remove(id);
@@ -417,7 +420,9 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                         PixelX:   contact.PixelX,
                         PixelY:   contact.PixelY,
                         Pressure: contact.Pressure,
-                        Phase:    TouchPhase.Ended));
+                        Phase:    TouchPhase.Ended,
+                        TiltX:    contact.TiltX,
+                        TiltY:    contact.TiltY));
 
                     _activeContacts.Remove(id);
                 }
@@ -497,7 +502,9 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                         PixelX:   existing.PixelX,
                         PixelY:   existing.PixelY,
                         Pressure: existing.Pressure,
-                        Phase:    TouchPhase.Ended));
+                        Phase:    TouchPhase.Ended,
+                        TiltX:    existing.TiltX,
+                        TiltY:    existing.TiltY));
 
                     _activeContacts.Remove(tp.Id);
                     wasActive = false;
@@ -515,7 +522,9 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                         PixelX:   existing.PixelX,
                         PixelY:   existing.PixelY,
                         Pressure: existing.Pressure,
-                        Phase:    TouchPhase.Ended));
+                        Phase:    TouchPhase.Ended,
+                        TiltX:    existing.TiltX,
+                        TiltY:    existing.TiltY));
 
                     _activeContacts.Remove(tp.Id);
                     wasActive = false;
@@ -553,13 +562,16 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                     PixelX:   sendX,
                     PixelY:   sendY,
                     Pressure: tp.Pressure,
-                    Phase:    phase));
+                    Phase:    phase,
+                    TiltX:    tp.TiltX,
+                    TiltY:    tp.TiltY));
 
                 if (isRelease || isHover)
                     _activeContacts.Remove(tp.Id);
                 else
                     _activeContacts[tp.Id] = new ActiveContact(
-                        nativeId, px, py, tp.Pressure, Environment.TickCount64);
+                        nativeId, px, py, tp.Pressure, Environment.TickCount64,
+                        tp.TiltX, tp.TiltY);
             }
 
             // 今回報告されなかった接触中コンタクトを直前の位置で維持する
@@ -635,7 +647,9 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
             if (_activeContacts.Count == 0) return;
 
             release = _activeContacts.Values
-                .Select(c => new InjectedPointer((int)c.NativeId, c.PixelX, c.PixelY, c.Pressure, TouchPhase.Ended))
+                .Select(c => new InjectedPointer(
+                    (int)c.NativeId, c.PixelX, c.PixelY, c.Pressure, TouchPhase.Ended,
+                    c.TiltX, c.TiltY))
                 .ToList();
 
             _activeContacts.Clear();

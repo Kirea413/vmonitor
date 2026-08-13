@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart'
@@ -62,6 +63,14 @@ class TouchPoint {
   /// 手のひらが当たっても線にならない。
   final bool isPen;
 
+  /// ペンの傾き（度、-90〜90）。
+  ///
+  /// Windows の POINTER_PEN_INFO と同じ取りかたにしてある。
+  /// [tiltX] は右へ倒すと正、[tiltY] は手前（画面の下）へ倒すと正。
+  /// 立てていれば両方 0。指では常に 0。
+  final int tiltX;
+  final int tiltY;
+
   const TouchPoint({
     required this.id,
     required this.x,
@@ -69,7 +78,43 @@ class TouchPoint {
     required this.pressure,
     required this.phase,
     this.isPen = false,
+    this.tiltX = 0,
+    this.tiltY = 0,
   });
+}
+
+/// Flutter の傾きの持ちかたを、Windows の持ちかたに直す。
+///
+/// Flutter は「垂直から何度倒れているか」(tilt) と「どちらへ倒れて
+/// いるか」(orientation) の二つで持つ。Windows は横方向と縦方向に
+/// 分けて持つ。極座標を直交座標に開く形になる。
+///
+/// tilt は垂直で 0、寝かせるほど π/2 に近づく。orientation は
+/// 0 が画面の上向きで、右回りに増える。
+///
+/// 縦は符号が逆になる。Flutter の 0 は画面の上向きだが、Windows の
+/// tiltY は手前（画面の下）へ倒したときが正。そのまま渡すと前後が
+/// ひっくり返る。
+///
+/// 立てているとき（tilt が 0）は両方 0 になる。
+({int x, int y}) penTiltToWindows(double tilt, double orientation) {
+  if (!tilt.isFinite || !orientation.isFinite || tilt == 0) {
+    return (x: 0, y: 0);
+  }
+
+  // 寝かせ切ると tan が発散する。Windows は ±90 度までなので、
+  // そこで頭打ちにする。
+  const limit = 89.0;
+  final t = tilt.clamp(-math.pi / 2, math.pi / 2);
+  final spread = math.tan(t);
+
+  double degrees(double v) =>
+      (math.atan(v) * 180 / math.pi).clamp(-limit, limit);
+
+  return (
+    x: degrees(spread * math.sin(orientation)).round(),
+    y: -degrees(spread * math.cos(orientation)).round(),
+  );
 }
 
 /// タッチフェーズ
@@ -213,7 +258,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     lastKind = event.kind.name;
     _activePointers[event.pointer] = event.localPosition;
     _emitEvent(event.pointer, event.localPosition, event.pressure,
-        TouchPhase.began, _isPen(event.kind));
+        TouchPhase.began, _isPen(event.kind), tilt: _tiltOf(event));
   }
 
   /// [PointerMoveEvent] を処理してポインター位置を更新し、TouchEvent を発行する。
@@ -221,7 +266,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     moveCount++;
     _activePointers[event.pointer] = event.localPosition;
     _emitEvent(event.pointer, event.localPosition, event.pressure,
-        TouchPhase.moved, _isPen(event.kind));
+        TouchPhase.moved, _isPen(event.kind), tilt: _tiltOf(event));
   }
 
   /// [PointerUpEvent] を処理してポインターを削除し、TouchEvent を発行する。
@@ -229,7 +274,7 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     upCount++;
     _activePointers.remove(event.pointer);
     _emitEvent(event.pointer, event.localPosition, event.pressure,
-        TouchPhase.ended, _isPen(event.kind));
+        TouchPhase.ended, _isPen(event.kind), tilt: _tiltOf(event));
 
     _resendRelease(event.pointer, event.localPosition, _isPen(event.kind),
         TouchPhase.ended);
@@ -273,14 +318,14 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     if (!_isPen(event.kind)) return;
 
     _emitEvent(event.pointer, event.localPosition, 0.0,
-        TouchPhase.hovered, true);
+        TouchPhase.hovered, true, tilt: _tiltOf(event));
   }
 
   void onPointerCancel(PointerCancelEvent event) {
     cancelCount++;
     _activePointers.remove(event.pointer);
     _emitEvent(event.pointer, event.localPosition, event.pressure,
-        TouchPhase.cancelled, _isPen(event.kind));
+        TouchPhase.cancelled, _isPen(event.kind), tilt: _tiltOf(event));
 
     _resendRelease(event.pointer, event.localPosition, _isPen(event.kind),
         TouchPhase.cancelled);
@@ -313,6 +358,15 @@ class FlutterTouchInputProxy implements TouchInputProxy {
       kind == PointerDeviceKind.stylus ||
       kind == PointerDeviceKind.invertedStylus;
 
+  /// 届いたイベントからペンの傾きを取り出す。
+  ///
+  /// 指には傾きが無い。端末が傾きを返さない場合も 0 のままになる。
+  static ({int x, int y}) _tiltOf(PointerEvent event) {
+    if (!_isPen(event.kind)) return (x: 0, y: 0);
+
+    return penTiltToWindows(event.tilt, event.orientation);
+  }
+
   /// 触れている指があるあいだだけ、知らせ続ける。
   void _updateHoldTimer() {
     if (_activePointers.isEmpty) {
@@ -335,7 +389,8 @@ class FlutterTouchInputProxy implements TouchInputProxy {
 
     // 主ポイント以外は _emitEvent が moved として一緒に載せてくれる
     _emitEvent(first.key, first.value, _lastPressure[first.key] ?? 0.5,
-        TouchPhase.moved, _lastIsPen[first.key] ?? false);
+        TouchPhase.moved, _lastIsPen[first.key] ?? false,
+        tilt: _lastTilt[first.key] ?? (x: 0, y: 0));
   }
 
   /// Flutter から何を受け取ったかの数え上げ（切り分け用）。
@@ -363,23 +418,27 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   static int sendFailed = 0;
   static String lastError = '-';
 
-  /// 送り直すときに使う、直近の筆圧と種別。
+  /// 送り直すときに使う、直近の筆圧と種別と傾き。
   final Map<int, double> _lastPressure = {};
   final Map<int, bool>   _lastIsPen    = {};
+  final Map<int, ({int x, int y})> _lastTilt = {};
 
   void _emitEvent(
     int pointer,
     Offset localPosition,
     double pressure,
     TouchPhase phase,
-    bool isPen,
-  ) {
+    bool isPen, {
+    ({int x, int y}) tilt = (x: 0, y: 0),
+  }) {
     if (phase == TouchPhase.ended || phase == TouchPhase.cancelled) {
       _lastPressure.remove(pointer);
       _lastIsPen.remove(pointer);
+      _lastTilt.remove(pointer);
     } else {
       _lastPressure[pointer] = pressure;
       _lastIsPen[pointer] = isPen;
+      _lastTilt[pointer] = tilt;
     }
 
     _updateHoldTimer();
@@ -401,6 +460,8 @@ class FlutterTouchInputProxy implements TouchInputProxy {
       pressure: pressure.clamp(0.0, 1.0),
       isPen: isPen,
       phase: phase,
+      tiltX: tilt.x,
+      tiltY: tilt.y,
     ));
 
     // 他のアクティブポインター（マルチタッチ）を moved フェーズとして追加
@@ -517,17 +578,28 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   /// │   y          (4 bytes, float32)                             │
   /// │   pressure   (4 bytes, float32)                             │
   /// │   phase      (1 byte)                                       │
+  /// │   kind       (1 byte)   ペンなら 1                          │
+  /// │   tilt_x     (1 byte, int8)  右へ倒すと正                   │
+  /// │   tilt_y     (1 byte, int8)  手前へ倒すと正                 │
   /// └─────────────────────────────────────────────────────────────┘
   /// ```
+  /// 並びを確かめるための入り口（テスト用）。
+  ///
+  /// PC 側と読み書きが食い違うと、繋がっているのに座標や傾きだけが
+  /// おかしい、という気付きにくい壊れかたをする。
+  @visibleForTesting
+  Uint8List debugSerialize(TouchEvent event) => _serializeEvent(event);
+
   static Uint8List _serializeEvent(TouchEvent event) {
     // 1 イベントあたりのヘッダー: 8(timestamp) + 1(orientation) + 1(count) = 10 バイト
     // 1 ポイントあたり:
-    //   4(id) + 4(x) + 4(y) + 4(pressure) + 1(phase) + 1(kind) = 18 バイト
+    //   4(id) + 4(x) + 4(y) + 4(pressure) + 1(phase) + 1(kind)
+    //   + 1(tilt_x) + 1(tilt_y) = 20 バイト
     //
-    // kind を足したぶん 17 から増えている。PC 側は長さを見て
-    // 古い 17 バイトの並びも読めるようにしてある。
+    // 17 → 18（kind）→ 20（傾き）と増えてきた。PC 側は長さを見て
+    // 古い並びも読めるようにしてある。
     const headerSize = 10;
-    const pointSize = 18;
+    const pointSize = 20;
 
     final buffer = ByteData(headerSize + event.points.length * pointSize);
     int offset = 0;
@@ -558,6 +630,10 @@ class FlutterTouchInputProxy implements TouchInputProxy {
       buffer.setUint8(offset, point.phase.index);
       offset += 1;
       buffer.setUint8(offset, point.isPen ? 1 : 0);
+      offset += 1;
+      buffer.setInt8(offset, point.tiltX.clamp(-90, 90));
+      offset += 1;
+      buffer.setInt8(offset, point.tiltY.clamp(-90, 90));
       offset += 1;
     }
 

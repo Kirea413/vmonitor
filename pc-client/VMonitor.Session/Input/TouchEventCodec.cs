@@ -13,12 +13,15 @@ namespace VMonitor.Session.Input;
 ///   timestamp_us  int64   (8)
 ///   orientation   uint8   (1)   Orientation の序数
 ///   point_count   uint8   (1)
-/// ポイントごと (17 バイト)
+/// ポイントごと (20 バイト)
 ///   id            int32   (4)
 ///   x             float32 (4)   正規化 [0.0, 1.0]
 ///   y             float32 (4)   正規化 [0.0, 1.0]
 ///   pressure      float32 (4)   正規化 [0.0, 1.0]
 ///   phase         uint8   (1)   TouchPhase の序数
+///   kind          uint8   (1)   ペンなら 1
+///   tilt_x        int8    (1)   右へ倒すと正
+///   tilt_y        int8    (1)   手前へ倒すと正
 /// </code>
 /// <para>
 /// 送信側の実装は <c>mobile-app/lib/touch/touch_input_proxy.dart</c> の
@@ -32,10 +35,13 @@ public static class TouchEventCodec
 
     /// <summary>タッチポイント 1 点あたりのバイト数。</summary>
     /// <remarks>
-    /// ペンかどうかを表す 1 バイトを足したため 18 になった。
-    /// 古い端末は 17 バイトで送ってくるので、長さを見て両方読む。
+    /// 17（当初）→ 18（ペンかどうか）→ 20（ペンの傾き）と増えてきた。
+    /// 古い端末は短い並びで送ってくるので、長さを見てどれでも読む。
     /// </remarks>
-    public const int PointSize = 18;
+    public const int PointSize = 20;
+
+    /// <summary>ペンの傾きが無かった頃の 1 点あたりのバイト数。</summary>
+    public const int PointSizeWithoutTilt = 18;
 
     /// <summary>ペンの区別が無かった頃の 1 点あたりのバイト数。</summary>
     public const int LegacyPointSize = 17;
@@ -62,10 +68,12 @@ public static class TouchEventCodec
 
         if (payload.Length < HeaderSize + pointCount * PointSize)
         {
-            if (payload.Length < HeaderSize + pointCount * LegacyPointSize)
-                return null;
+            pointSize = payload.Length >= HeaderSize + pointCount * PointSizeWithoutTilt
+                ? PointSizeWithoutTilt
+                : LegacyPointSize;
 
-            pointSize = LegacyPointSize;
+            if (payload.Length < HeaderSize + pointCount * pointSize)
+                return null;
         }
 
         if (!TryMapOrientation(orientationCode, out var orientation))
@@ -89,6 +97,10 @@ public static class TouchEventCodec
             // 古い並びにはこの 1 バイトが無い。その場合は指として扱う。
             bool isPen = pointSize > LegacyPointSize && slice[17] != 0;
 
+            // 傾きも古い並びには無い。立てている扱いにする。
+            sbyte tiltX = pointSize > PointSizeWithoutTilt ? (sbyte)slice[18] : (sbyte)0;
+            sbyte tiltY = pointSize > PointSizeWithoutTilt ? (sbyte)slice[19] : (sbyte)0;
+
             points.Add(new TouchPoint
             {
                 Id       = id,
@@ -97,6 +109,8 @@ public static class TouchEventCodec
                 Pressure = SanitizeNormalized(pressure),
                 Phase    = phase,
                 IsPen    = isPen,
+                TiltX    = SanitizeTilt(tiltX),
+                TiltY    = SanitizeTilt(tiltY),
             });
         }
 
@@ -139,6 +153,8 @@ public static class TouchEventCodec
             BinaryPrimitives.WriteSingleLittleEndian(slice.Slice(12, 4), (float)point.Pressure);
             slice[16] = (byte)point.Phase;
             slice[17] = point.IsPen ? (byte)1 : (byte)0;
+            slice[18] = unchecked((byte)(sbyte)SanitizeTilt(point.TiltX));
+            slice[19] = unchecked((byte)(sbyte)SanitizeTilt(point.TiltY));
         }
 
         return buffer;
@@ -155,6 +171,11 @@ public static class TouchEventCodec
         if (float.IsNaN(value)) return 0.0;
         return Math.Clamp(value, 0f, 1f);
     }
+
+    /// <summary>
+    /// 傾きを Windows が受け取れる範囲（-90〜90 度）に収める。
+    /// </summary>
+    private static int SanitizeTilt(int value) => Math.Clamp(value, -90, 90);
 
     private static bool TryMapOrientation(byte code, out Orientation orientation)
     {
