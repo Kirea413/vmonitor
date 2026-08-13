@@ -565,16 +565,28 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
     // 伝えて、対応するほうを使わせる。
     displayPreferences.setOrientation(MediaQuery.of(context).orientation);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      // 設定ボタンは映像の上に重ねる。
-      // 映像を隠してしまうので、ドラッグで動かせて、長押しで隠せるようにしてある。
-      body: Stack(
-        children: [
-          _buildBody(),
-          if (!_connecting && _errorMessage == null)
-            DraggableSettingsButton(onPressed: _openSettings),
-        ],
+    // 戻る操作でこの画面を閉じさせない。
+    //
+    // iOS は左端から右へ払うと前の画面に戻る。Android も戻る操作で
+    // 同じことが起きる。画面全体が PC への入力面なので、端をなぞる
+    // だけで意図せず切れてしまい、「セッションを確立しています」に
+    // 戻ってしまう。
+    //
+    // 切るときは決めた操作から。_goHome は Navigator.pop を直接
+    // 呼んでいるので、ここで塞いでも今までどおり閉じられる。
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        // 設定ボタンは映像の上に重ねる。
+        // 映像を隠してしまうので、ドラッグで動かせて、長押しで隠せるようにしてある。
+        body: Stack(
+          children: [
+            _buildBody(),
+            if (!_connecting && _errorMessage == null)
+              DraggableSettingsButton(onPressed: _openSettings),
+          ],
+        ),
       ),
     );
   }
