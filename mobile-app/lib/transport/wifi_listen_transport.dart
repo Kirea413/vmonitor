@@ -188,8 +188,30 @@ class WifiListenTransport implements Transport {
     _receiveBuffer.clear();
   }
 
+  /// 書き込みの順番待ち。
+  ///
+  /// 送信は待たずに呼ばれる。指を滑らせている間は 120Hz で連なるので、
+  /// 前の flush が終わらないうちに次の add が来る。IOSink は flush の
+  /// 最中に add されると StateError を投げ、その 1 通は送られない。
+  ///
+  /// 実機では「ドラッグしたときだけ、離したのが PC に届かない」という
+  /// 形で出た。タップは書き込みが重ならないので通る。落ちるのは
+  /// ストローク最後の 1 通で、PC 側は時間切れまで押されたままになり、
+  /// 長押しになってしまう。
+  Future<void> _writeQueue = Future<void>.value();
+
   @override
-  Future<void> send(Uint8List data, ChannelId channel) async {
+  Future<void> send(Uint8List data, ChannelId channel) {
+    // 前の書き込みが終わってから自分の番にする。
+    // 失敗しても列は続ける。1 通の失敗で以降が全部詰まってしまう。
+    final result = _writeQueue.then((_) => _sendNow(data, channel));
+
+    _writeQueue = result.catchError((Object _) {});
+
+    return result;
+  }
+
+  Future<void> _sendNow(Uint8List data, ChannelId channel) async {
     final socket = _socket;
     if (socket == null) {
       throw StateError('まだ PC が接続していません。');
