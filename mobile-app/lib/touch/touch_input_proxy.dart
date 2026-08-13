@@ -447,11 +447,60 @@ class FlutterTouchInputProxy implements TouchInputProxy {
 
     if (isRelease) sentRelease++;
 
-    // トランスポートで送信（非同期エラーは握り潰してストリームを止めない）
-    send(touchEvent).catchError((Object e) {
-      sendFailed++;
-      lastError = 'send: $e';
-    });
+    _enqueue(touchEvent);
+  }
+
+  /// 送信待ちの列。
+  ///
+  /// トランスポート側で書き込みを直列化した。おかげで消えなくなった
+  /// 代わりに、順番待ちが生まれた。指を滑らせている間は 120Hz で
+  /// 積まれるので、「離した」はその後ろに並ぶ。溜まり具合で待ち時間が
+  /// 変わり、「タイミングによって離れるのが遅い」という形で出る。
+  ///
+  /// 動いた知らせは、古いものに価値が無い。新しいものが来たら
+  /// 置き換える。押した・離したは残す。落とすと線が繋がったまま
+  /// になったり、押しっぱなしになったりする。
+  final List<TouchEvent> _outbox = [];
+  bool _draining = false;
+
+  /// 落としてはいけない知らせか。
+  ///
+  /// 動いた・浮いたは、次が来れば古いほうは要らない。
+  static bool _mustKeep(TouchEvent event) => event.points.any((p) =>
+      p.phase != TouchPhase.moved && p.phase != TouchPhase.hovered);
+
+  void _enqueue(TouchEvent event) {
+    if (!_mustKeep(event) &&
+        _outbox.isNotEmpty &&
+        !_mustKeep(_outbox.last)) {
+      // 前の「動いた」は、まだ送っていないなら要らない
+      _outbox[_outbox.length - 1] = event;
+    } else {
+      _outbox.add(event);
+    }
+
+    unawaited(_drain());
+  }
+
+  Future<void> _drain() async {
+    if (_draining) return;
+    _draining = true;
+
+    try {
+      while (_outbox.isNotEmpty) {
+        final event = _outbox.removeAt(0);
+
+        try {
+          await send(event);
+        } catch (e) {
+          // 1 通の失敗で以降を止めない
+          sendFailed++;
+          lastError = 'send: $e';
+        }
+      }
+    } finally {
+      _draining = false;
+    }
   }
 
   /// [TouchEvent] をバイナリ形式にシリアライズする。
