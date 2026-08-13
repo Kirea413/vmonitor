@@ -1891,6 +1891,10 @@ public sealed class ConnectionServer
                 };
                 injector.UpdateTransform(mirror.Resolution, Orientation.Portrait);
 
+                // 「離した」が消えている場所を残す。注入側からしか
+                // 見えない事実なので、こちらの記録に流し込む。
+                injector.Log = message => _logger.Info("Touch", message);
+
                 // 取り込み元の解像度が変わったら座標変換を追従させる
                 var ink = injector;
                 mirror.ResolutionUpdated += (_, e) =>
@@ -2202,7 +2206,10 @@ public sealed class ConnectionServer
                 var pixel = injector.TransformPoint(first.X, first.Y);
 
                 _logger.Info("ConnectionServer",
-                    $"Touch #{count}: phase={first.Phase} " +
+                    // 指の番号も出す。押したときと離したときで番号が
+                    // 食い違っていると、「離した」が知らない指の知らせに
+                    // なって捨てられる。番号が無いと気づけない。
+                    $"Touch #{count}: phase={first.Phase} id={first.Id} " +
                     // ペンとして届いているかどうかが分からないと、
                     // タッチ扱いになっているのか、ペン注入の側の問題なのか
                     // 切り分けられない。

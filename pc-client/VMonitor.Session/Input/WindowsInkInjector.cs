@@ -134,6 +134,15 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
 
     // ── 設定 ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// 切り分け用の記録先。呼び出し側が繋ぐ。
+    ///
+    /// 「離した」がどこで消えているのかを、こちら側からしか
+    /// 見えない事実（時間切れで離した、知らない指を捨てた）を
+    /// 添えて残すために持つ。
+    /// </summary>
+    public Action<string>? Log { get; set; }
+
     private PointerInjectionMode _mode = PointerInjectionMode.Touch;
 
     /// <summary>
@@ -254,6 +263,7 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
         try
         {
             List<InjectedPointer> frame;
+            string? staleNote;
 
             lock (_contactLock)
             {
@@ -298,7 +308,16 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 }
 
                 foreach (var id in stale) _activeContacts.Remove(id);
+
+                staleNote = stale.Count == 0
+                    ? null
+                    : $"時間切れで離しました id={string.Join(",", stale)}（{StaleContactMs}ms 知らせが来ませんでした）";
             }
+
+            // これが出るということは、端末の「離した」が届いていない。
+            // 利用者からは「離してちょっとしてから離れる」「長押しに
+            // なってしまう」という形で見える。
+            if (staleNote is not null) Log?.Invoke(staleNote);
 
             _backend.InjectFrame(frame);
         }
@@ -367,6 +386,10 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     {
         var frame    = new List<InjectedPointer>(Math.Min(points.Count + MaxContacts, MaxContacts * 2));
         var reported = new HashSet<int>();
+
+        // 記録は錠の外で出す。錠を持ったまま書き出すと、
+        // 書き出しが詰まったときに注入まで止まる。
+        var notes = new List<string>();
 
         lock (_contactLock)
         {
@@ -447,7 +470,15 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                 // 一度も届いていなかった。
                 if (!wasActive && tp.Phase is not TouchPhase.Began
                                            and not TouchPhase.Hovered)
+                {
+                    // 捨てたことを残す。「離した」がここで消えているなら、
+                    // 端末とこちらで指の番号が食い違っている。
+                    if (tp.Phase is TouchPhase.Ended or TouchPhase.Cancelled)
+                        notes.Add($"知らない指の『離した』を捨てました id={tp.Id} " +
+                                  $"（触れている指: {string.Join(",", _activeContacts.Keys)}）");
+
                     continue;
+                }
 
                 // 触れている指がホバーになった＝画面から浮いた。
                 //
@@ -545,6 +576,8 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                     Phase:    TouchPhase.Moved));
             }
         }
+
+        foreach (var note in notes) Log?.Invoke(note);
 
         return frame;
     }
