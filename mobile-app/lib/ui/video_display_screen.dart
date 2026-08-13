@@ -695,7 +695,13 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
                     'down ${touch.FlutterTouchInputProxy.downCount} '
                         'up ${touch.FlutterTouchInputProxy.upCount} '
                         'cancel ${touch.FlutterTouchInputProxy.cancelCount} '
-                        '(${touch.FlutterTouchInputProxy.lastKind})\n' +
+                        '(${touch.FlutterTouchInputProxy.lastKind})\n'
+                        // up が増えても PC に届いていない。up の数え上げも
+                        // 心拍の停止も送信より手前で起きるので、そこまで
+                        // 辿り着いた証拠にならない。送信の直前と結果を出す。
+                        '離 ${touch.FlutterTouchInputProxy.sentRelease} '
+                        '失敗 ${touch.FlutterTouchInputProxy.sendFailed}\n'
+                        '${touch.FlutterTouchInputProxy.lastError}\n' +
                     (_decoderFps > 0
                         ? '表示中 ${_decoderFps.toStringAsFixed(1)} fps  '
                           'デコード ${_decodeLatencyMs}ms\n'

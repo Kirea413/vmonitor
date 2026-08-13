@@ -230,7 +230,40 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     _activePointers.remove(event.pointer);
     _emitEvent(event.pointer, event.localPosition, event.pressure,
         TouchPhase.ended, _isPen(event.kind));
+
+    _resendRelease(event.pointer, event.localPosition, _isPen(event.kind),
+        TouchPhase.ended);
   }
+
+  /// 「離した」をもう一度送る。
+  ///
+  /// 押した・動いたは、取りこぼしても次が来る。「離した」だけは
+  /// ストロークの最後の 1 通で、これを落とすと PC 側は時間切れまで
+  /// 押されたままになる。利用者からは長押しに見える。
+  ///
+  /// 一度離した指の「離した」は何度届いても構わない。PC 側は
+  /// 覚えの無い指の知らせを捨てるので、二重に離れることはない。
+  void _resendRelease(
+    int pointer,
+    Offset position,
+    bool isPen,
+    TouchPhase phase,
+  ) {
+    for (final delay in _releaseRetryDelays) {
+      Timer(delay, () {
+        // 同じ番号で押し直されていたら、送ってはいけない。
+        // 始まったばかりのストロークを消してしまう。
+        if (_activePointers.containsKey(pointer)) return;
+
+        _emitEvent(pointer, position, 0.0, phase, isPen);
+      });
+    }
+  }
+
+  static const List<Duration> _releaseRetryDelays = [
+    Duration(milliseconds: 60),
+    Duration(milliseconds: 200),
+  ];
 
   /// [PointerCancelEvent] を処理してポインターをキャンセルし、TouchEvent を発行する。
   /// 触れずに近づいているペンの位置を送る。
@@ -248,6 +281,9 @@ class FlutterTouchInputProxy implements TouchInputProxy {
     _activePointers.remove(event.pointer);
     _emitEvent(event.pointer, event.localPosition, event.pressure,
         TouchPhase.cancelled, _isPen(event.kind));
+
+    _resendRelease(event.pointer, event.localPosition, _isPen(event.kind),
+        TouchPhase.cancelled);
   }
 
   /// いま触れていることになっている指を、すべて離したことにする。
@@ -314,6 +350,18 @@ class FlutterTouchInputProxy implements TouchInputProxy {
   static int upCount = 0;
   static int cancelCount = 0;
   static String lastKind = '-';
+
+  /// 送り出せた「離した」の数と、送れなかった数。
+  ///
+  /// upCount は onPointerUp の入口で増える。心拍タイマーが止まるのも
+  /// _emitEvent の冒頭。つまりどちらも「送信まで辿り着いた」証拠には
+  /// ならない。手前で例外が出ていれば、up が増えて心拍も止まるのに
+  /// PC には何も届かない。実際そう見えている。
+  ///
+  /// 送信の直前と、その結果を別々に数える。
+  static int sentRelease = 0;
+  static int sendFailed = 0;
+  static String lastError = '-';
 
   /// 送り直すときに使う、直近の筆圧と種別。
   final Map<int, double> _lastPressure = {};
@@ -383,11 +431,27 @@ class FlutterTouchInputProxy implements TouchInputProxy {
       currentOrientation: _orientation,
     );
 
-    // ストリームに流す
-    _controller.add(touchEvent);
+    final isRelease =
+        phase == TouchPhase.ended || phase == TouchPhase.cancelled;
+
+    // ストリームに流す。
+    //
+    // ここが投げると、この下の送信に辿り着かない。「離した」だけが
+    // 消える形になり、PC 側は時間切れまで押されたままになる。
+    // 流せなくても送信は続ける。
+    try {
+      _controller.add(touchEvent);
+    } catch (e) {
+      lastError = 'add: $e';
+    }
+
+    if (isRelease) sentRelease++;
 
     // トランスポートで送信（非同期エラーは握り潰してストリームを止めない）
-    send(touchEvent).catchError((_) {});
+    send(touchEvent).catchError((Object e) {
+      sendFailed++;
+      lastError = 'send: $e';
+    });
   }
 
   /// [TouchEvent] をバイナリ形式にシリアライズする。
