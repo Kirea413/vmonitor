@@ -73,6 +73,17 @@ Name: "english";  MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "デスクトップにショートカットを作成する"; GroupDescription: "追加タスク:"; Flags: unchecked
 
+; USB 直結 (AOA) を使えるようにする。
+;
+; 通常モードの Android は MTP ドライバの持ち物になっていることが多く、
+; その状態ではこちらから開けない。AOA の切り替え指示すら送れないため、
+; USB 直結が丸ごと使えない。UsbDk は既存のドライバを外さずに届く。
+;
+; Wi-Fi しか使わない人には要らないので、外せるようにしてある。
+; ただし既定は入れる側。USB 直結はこのアプリの売りのひとつで、
+; 「なぜか使えない」で終わるほうが困る。
+Name: "usbdk"; Description: "USB 直結を使えるようにする (UsbDk を導入)"; GroupDescription: "追加タスク:"
+
 [Files]
 ; ── アプリケーション本体 ────────────────────────────────────────────
 Source: "{#AppSrcDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -90,6 +101,13 @@ Source: "{#DriverSrcDir}\vmonitoraoa.cat";  DestDir: "{app}\driver"; Flags: igno
 ; USB 直結が使えないとき、Windows が何のドライバを当てたかを並べる。
 ; 手元に無い PC で起きている問題を切り分けるのに要る。
 Source: "..\driver\diagnose-usb.ps1"; DestDir: "{app}"; Flags: ignoreversion
+
+; 同梱している第三者のソフトウェアの表記
+Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+
+; ── UsbDk ───────────────────────────────────────────────────────
+; USB 直結を選んだときだけ展開する。選ばなければ置いていかない。
+Source: "payload\UsbDk_1.0.22_x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall; Tasks: usbdk
 
 ; ドライバの削除は VMonitorSetup.exe /uninstall が行う。
 ; 以前ここにあった uninstall_driver.ps1 は、デバイスノードも証明書も
@@ -127,6 +145,24 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 ; 「インストールは成功したのに仮想ディスプレイが出ない」という
 ; 原因の分からない状態になっていた。
 ; いまは [Code] の CurStepChanged から呼び、失敗したらその場で伝える。
+
+; USB 直結を使えるようにする。
+;
+; 通常モードの Android は MTP ドライバに握られていることが多く、
+; そのままでは AOA の切り替え指示すら送れない。UsbDk は既存の
+; ドライバを外さずに届くので、MTP も生きたままになる。
+;
+; 中のカーネルドライバは二重署名（Symantec のクロス署名と、
+; Microsoft Windows Third Party Component CA 2014 の証明署名）で、
+; セキュアブートを有効にしたままでも読み込まれる。
+;
+; 失敗しても止めない。Wi-Fi 接続は UsbDk が無くても使えるので、
+; ここで引き返すと、使えたはずの機能まで諦めることになる。
+Filename: "msiexec.exe"; \
+  Parameters: "/i ""{tmp}\UsbDk_1.0.22_x64.msi"" /qn /norestart"; \
+  StatusMsg: "USB 直結の準備をしています..."; \
+  Flags: waituntilterminated runhidden; \
+  Tasks: usbdk
 
 ; インストール完了後にアプリを起動する（任意）
 Filename: "{app}\{#AppExeName}"; \

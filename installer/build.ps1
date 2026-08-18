@@ -240,6 +240,52 @@ $appSize  = ($appFiles | Measure-Object -Property Length -Sum).Sum
 Write-Host ("   アプリ : {0} ファイル / {1:N1} MB" -f $appFiles.Count, ($appSize / 1MB))
 Write-Host ("   ドライバ: {0} ファイル" -f @(Get-ChildItem $DrvStageDir -File).Count)
 
+# ── UsbDk を用意する ────────────────────────────────────────────────────
+#
+# 通常モードの Android は MTP ドライバの持ち物になっていることが多い。
+# その状態では libusb から開けず、AOA の切り替え指示すら送れない。
+# 実機では Pixel 9a が WUDFWpdMtp で握られていた。
+#
+# UsbDk は既存のドライバを外さずに USB へ到達できる。別途入れてもらう
+# 案内では手間が増えるだけなので、こちらで同梱する。
+#
+# 中のカーネルドライバは二重署名になっている（Symantec のクロス署名と、
+# Microsoft Windows Third Party Component CA 2014 による証明署名）。
+# 後者があるおかげで、セキュアブートを有効にしたままでも読み込まれる。
+Write-Step 'UsbDk を用意しています...'
+
+$VendorDir  = Join-Path $InstallerDir 'vendor'
+$UsbDkMsi   = Join-Path $VendorDir 'UsbDk_1.0.22_x64.msi'
+$UsbDkUrl   = 'https://github.com/daynix/UsbDk/releases/download/v1.00-22/UsbDk_1.0.22_x64.msi'
+$UsbDkSha   = '91F6F695E1E13C656024E6D3B55620BF08D8835EF05EE0496935BA6BB62466A5'
+
+New-Item -ItemType Directory -Path $VendorDir -Force | Out-Null
+
+if (-not (Test-Path $UsbDkMsi)) {
+    Write-Host '   取得しています...'
+    Invoke-WebRequest -Uri $UsbDkUrl -OutFile $UsbDkMsi -UseBasicParsing
+}
+
+# 取り違えや差し替えに気付けるよう、中身を照合してから配る。
+$actual = (Get-FileHash $UsbDkMsi -Algorithm SHA256).Hash
+
+if ($actual -ne $UsbDkSha) {
+    Remove-Item $UsbDkMsi -Force
+    throw "UsbDk の中身が想定と違います。`n  期待: $UsbDkSha`n  実際: $actual"
+}
+
+# 署名が生きていることも見る。カーネルドライバを配る以上、
+# ここを黙って通すわけにはいかない。
+$sig = Get-AuthenticodeSignature $UsbDkMsi
+
+if ($sig.Status -ne 'Valid') {
+    throw "UsbDk の署名が有効ではありません: $($sig.Status)"
+}
+
+Copy-Item $UsbDkMsi $PayloadDir -Force
+Write-Host ("   {0}  ({1:N1} MB)  署名: {2}" -f `
+    (Split-Path $UsbDkMsi -Leaf), ((Get-Item $UsbDkMsi).Length / 1MB), $sig.SignerCertificate.Subject.Split(',')[0])
+
 # ── 6. インストーラーのコンパイル ───────────────────────────────────────
 if ($SkipInstaller) {
     Write-Host ''

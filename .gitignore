@@ -75,3 +75,6 @@ sideloadlydaemon.log
 # gen-l10n が作るもの。arb から毎回生成される。
 mobile-app/lib/l10n/app_localizations*.dart
 mobile-app/l10n-missing.txt
+
+# ビルド時に取得する第三者の配布物（リポジトリには置かない）
+installer/vendor/
