@@ -37,8 +37,8 @@
       ここを実際の配布より大きくすると、新版を出しても
       「古い版」と判定されて更新が出てこない。
     -->
-    <Version>1.1.0</Version>
-    <InformationalVersion>1.1.0-beta</InformationalVersion>
+    <Version>1.2.0</Version>
+    <InformationalVersion>1.2.0-beta</InformationalVersion>
 
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>

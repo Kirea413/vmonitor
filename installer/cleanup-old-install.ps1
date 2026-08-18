@@ -158,5 +158,5 @@ Write-Host ''
 Write-Host '片付けが終わりました。' -ForegroundColor Green
 Write-Host ''
 Write-Host '次に、インストーラーを実行して入れ直してください:'
-Write-Host '  installer\output\vmonitor-1.1.0-setup.exe'
+Write-Host '  installer\output\vmonitor-1.2.0-setup.exe'
 Write-Host ''
