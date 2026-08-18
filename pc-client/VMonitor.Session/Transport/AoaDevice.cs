@@ -320,14 +320,19 @@ public sealed class AoaDevice : IDisposable
 
                 // Windows では、インターフェースを取ってからでないと
                 // 制御転送が LIBUSB_ERROR_NOT_FOUND になる。
-                bool claimed = false;
-                try { claimed = device.ClaimInterface(0); } catch { }
+                //
+                // 番号は 0 とは限らない。通常モードの端末では、WinUSB が
+                // 当たっているのが ADB のインターフェースだけ、という
+                // ことがある。その番号は機種や USB の設定で変わる。
+                // 0 だけを見ていると、掴めるのに掴めないことになる。
+                int claimedInterface = TryClaimAnyInterface(device);
+                bool claimed = claimedInterface >= 0;
 
                 int protocol = QueryProtocol(device);
 
                 if (protocol <= 0)
                 {
-                    if (claimed) TryReleaseInterface(device);
+                    if (claimed) TryReleaseInterface(device, claimedInterface);
                     continue;   // AOA を知らないデバイス。webcam などが該当する
                 }
 
@@ -336,7 +341,8 @@ public sealed class AoaDevice : IDisposable
 
                 if (!claimed)
                 {
-                    failures.Add($"{label}: インターフェースを確保できませんでした" +
+                    failures.Add($"{label}: AOA v{protocol} に対応していますが、" +
+                                 "インターフェースを確保できませんでした" +
                                  "（adb サーバーが掴んでいる可能性があります）");
                     continue;
                 }
@@ -344,7 +350,7 @@ public sealed class AoaDevice : IDisposable
                 if (!SendIdentity(device, out string sendError))
                 {
                     failures.Add($"{label}: 識別文字列の送信に失敗しました ({sendError})");
-                    TryReleaseInterface(device);
+                    TryReleaseInterface(device, claimedInterface);
                     continue;
                 }
 
@@ -385,6 +391,43 @@ public sealed class AoaDevice : IDisposable
     /// <summary>
     /// 端末に AOA の対応バージョンを聞く。対応していなければ 0。
     /// </summary>
+    /// <summary>
+    /// 掴めるインターフェースを順に試し、最初に取れた番号を返す。取れなければ -1。
+    /// </summary>
+    /// <remarks>
+    /// 通常モードの端末では、WinUSB が当たっているのが ADB の
+    /// インターフェースだけ、ということがある。その番号は機種や
+    /// USB の設定で変わるため、決め打ちにできない。
+    /// </remarks>
+    private static int TryClaimAnyInterface(IUsbDevice device)
+    {
+        int count = 1;
+
+        try
+        {
+            var config = device.Configs.FirstOrDefault();
+            if (config is not null) count = Math.Max(1, config.Interfaces.Count);
+        }
+        catch
+        {
+            // 構成を読めない端末もある。0 番だけ試す。
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            try
+            {
+                if (device.ClaimInterface(i)) return i;
+            }
+            catch
+            {
+                // 別のドライバや adb が持っている。次を試す。
+            }
+        }
+
+        return -1;
+    }
+
     private static int QueryProtocol(IUsbDevice device)
     {
         var buffer = new byte[2];
@@ -452,9 +495,10 @@ public sealed class AoaDevice : IDisposable
         return true;
     }
 
-    private static void TryReleaseInterface(IUsbDevice device)
+    /// <summary>掴んだインターフェースを手放す。番号は掴んだときのものを渡す。</summary>
+    private static void TryReleaseInterface(IUsbDevice device, int interfaceNumber = 0)
     {
-        try { device.ReleaseInterface(0); } catch { }
+        try { device.ReleaseInterface(interfaceNumber); } catch { }
     }
 
     /// <summary>

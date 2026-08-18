@@ -121,23 +121,52 @@ public sealed class TouchContactLeakTests
     }
 
     [Fact]
-    public async Task 知らせが続いているあいだは離さない()
+    public void 知らせが続いているあいだは離さない()
     {
         using var injector = Create();
 
+        // 時間はこちらで進める。
+        //
+        // 実時間で待つと、他のテストと並行に走ったときに待ち時間が
+        // 伸び、触れ続けているはずの接触が見切られてしまう。
+        // 間隔を詰めても負荷次第で落ちるため、時計ごと差し替える。
+        long now = 0;
+        injector.TimeSource = () => now;
+
         injector.InjectTouch(new[] { Point(4, TouchPhase.Began) }, Screen);
 
-        // 長押しの最中。指は動かないが、端末は送り続けている。
-        //
-        // 実機は 200ms ごとだが、ここでは 80ms ごとに送る。
-        // 他のテストと並行に走ると待ち時間が伸びることがあり、
-        // 実機どおりの間隔だと見切り (1.2 秒) に届いてしまう。
+        // 長押しの最中。指は動かないが、端末は 200ms ごとに送ってくる。
+        // 見切り (1.2 秒) より短い間隔なので、離れてはいけない。
         for (int i = 0; i < 20; i++)
         {
-            await Task.Delay(80);
+            now += 200;
             injector.InjectTouch(new[] { Point(4, TouchPhase.Moved) }, Screen);
         }
 
         Assert.Equal(1, injector.ActiveContactCount);
+        Assert.Equal(4_000, now);
+    }
+
+    [Fact]
+    public void 知らせの間隔が見切りを超えたら離す()
+    {
+        using var injector = Create();
+
+        long now = 0;
+        injector.TimeSource = () => now;
+
+        injector.InjectTouch(new[] { Point(6, TouchPhase.Began) }, Screen);
+        Assert.Equal(1, injector.ActiveContactCount);
+
+        // 見切りを跨いでから次の知らせが来た。もう離れている。
+        now += 1_500;
+
+        // 送り直しのタイマーは実時間で動く。ここでは待たずに、
+        // 同じ判断をする道（次の注入）で確かめる。
+        injector.InjectTouch(new[] { Point(7, TouchPhase.Began) }, Screen);
+
+        Assert.DoesNotContain(
+            ((RecordingPointerInjectionBackend)injector.Backend).Frames[^1],
+            p => p.Phase == TouchPhase.Moved && p.Id == 6);
     }
 }

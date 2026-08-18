@@ -19,9 +19,42 @@
 ; 対応する PID:
 ;   0x2D00  アクセサリーのみ         → 単一インターフェース
 ;   0x2D01  アクセサリー + ADB       → 複合デバイス。アクセサリーは MI_00
+;   0x2D02〜0x2D05  オーディオや ADB との組み合わせ
 ;
-; オーディオ付きの 0x2D02〜0x2D05 は、こちらから
-; ACCESSORY_SET_AUDIO_MODE を送らない限り現れないため対象外にしている。
+; オーディオ付きは、こちらから ACCESSORY_SET_AUDIO_MODE を送らない限り
+; 現れない。ただし端末やメーカーの設定で、こちらが求めていない構成で
+; 戻ってくることがある。アプリ側は 0x2D00〜0x2D05 をすべて受け付ける
+; ので、ドライバだけ狭いと「切り替えには成功するのに掴めない」という
+; 出かたをする。揃えておく。
+;
+; ── 切り替える前の端末について ────────────────────────────────────
+;
+; ここまでは「アクセサリーモードになった後」の話。切り替えを指示する
+; ベンダーリクエスト 51/52/53 は、まだ通常モードの端末へ送る必要が
+; ある。このときの VID/PID はメーカーごとに違い、列挙しきれない。
+;
+; Windows では、ドライバの当たっていないデバイスを libusb で開けない。
+; 通常モードの端末は MTP ドライバなどの持ち物になっているため、
+; そのままでは切り替えを指示できない。
+;
+; メーカーを問わない書きかたとして、ADB インターフェースの種別
+; (Class FF / SubClass 42 / Prot 01) で一致させることを試したが、
+; これは使えない。Inf2Cat が規則 B2.6.4.9 で弾く。
+;
+;   Third-party USB function drivers must not install
+;   through a compatible ID match.
+;
+; 種別による一致は third-party のドライバに許されていない。
+; カタログに署名できないので、配布もできない。
+;
+; したがって、切り替え前の端末を掴むには
+;   ・メーカーごとの VID/PID をここに並べる（列挙しきれない。
+;     当てるとその端末の MTP が使えなくなる）
+;   ・libusb のフィルタードライバを入れる（既存のドライバを
+;     置き換えずに済むが、カーネルドライバの署名が要る）
+;   ・利用者に Google USB Driver を入れてもらい、USB デバッグを
+;     有効にしてもらう（いま動いている端末はこの状態）
+; のいずれかになる。現状は 3 つめを前提にしている。
 ;
 
 [Version]
@@ -41,12 +74,32 @@ PnpLockdown = 1
 [VMonitorAOA.NTamd64]
 %DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00
 %DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00&MI_00
+%DeviceName_AccessoryAdb% = USB_Install, USB\VID_18D1&PID_2D01
 %DeviceName_AccessoryAdb% = USB_Install, USB\VID_18D1&PID_2D01&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D02
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D02&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D03
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D03&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D04
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D04&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D05
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D05&MI_00
+
 
 [VMonitorAOA.NTarm64]
 %DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00
 %DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D00&MI_00
+%DeviceName_AccessoryAdb% = USB_Install, USB\VID_18D1&PID_2D01
 %DeviceName_AccessoryAdb% = USB_Install, USB\VID_18D1&PID_2D01&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D02
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D02&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D03
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D03&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D04
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D04&MI_00
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D05
+%DeviceName_Accessory%    = USB_Install, USB\VID_18D1&PID_2D05&MI_00
+
 
 ; ── WinUSB の組み込み ─────────────────────────────────────────────────
 ;

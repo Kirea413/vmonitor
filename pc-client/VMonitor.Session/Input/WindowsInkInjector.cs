@@ -87,6 +87,18 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
     /// <summary>接触追跡の状態を保護するロック。</summary>
     private readonly object _contactLock = new();
 
+    /// <summary>
+    /// 「いま何ミリ秒か」を得る手立て。既定は起動からの経過時間。
+    /// </summary>
+    /// <remarks>
+    /// 見切り (<see cref="StaleContactMs"/>) は実時間で測っている。
+    /// テストから実時間で確かめようとすると、他のテストと並行に走った
+    /// ときに待ち時間が伸び、触れ続けているはずの接触が見切られて
+    /// しまう。時計を差し替えられるようにして、時間の進みを
+    /// テスト側が決められるようにする。
+    /// </remarks>
+    internal Func<long> TimeSource { get; set; } = () => Environment.TickCount64;
+
     private bool _disposed;
 
     /// <summary>接触中の 1 コンタクトの状態。</summary>
@@ -270,7 +282,7 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
             {
                 if (_disposed || _activeContacts.Count == 0) return;
 
-                long now = Environment.TickCount64;
+                long now = TimeSource();
 
                 frame = new List<InjectedPointer>(_activeContacts.Count);
 
@@ -570,7 +582,7 @@ public sealed class WindowsInkInjector : IWindowsInkInjector, IDisposable
                     _activeContacts.Remove(tp.Id);
                 else
                     _activeContacts[tp.Id] = new ActiveContact(
-                        nativeId, px, py, tp.Pressure, Environment.TickCount64,
+                        nativeId, px, py, tp.Pressure, TimeSource(),
                         tp.TiltX, tp.TiltY);
             }
 
