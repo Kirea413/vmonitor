@@ -151,6 +151,7 @@ public sealed class AoaDevice : IDisposable
     {
         var results = new List<UsbDeviceSummary>();
 
+        LibUsbBackend.Prepare();
         using var context = new UsbContext();
         context.SetDebugLevel(LogLevel.None);
 
@@ -224,6 +225,7 @@ public sealed class AoaDevice : IDisposable
     {
         try
         {
+            LibUsbBackend.Prepare();
             using var context = new UsbContext();
             context.SetDebugLevel(LogLevel.None);
 
@@ -281,6 +283,7 @@ public sealed class AoaDevice : IDisposable
     /// </remarks>
     public static SwitchResult SwitchToAccessoryMode()
     {
+        LibUsbBackend.Prepare();
         using var context = new UsbContext();
         context.SetDebugLevel(LogLevel.None);
 
@@ -617,6 +620,7 @@ public sealed class AoaDevice : IDisposable
         // 掴んだデバイスは返した後も生かし続ける必要があるので、
         // context と一覧の寿命を AoaDevice に預ける。
         // 失敗した経路では必ず自分で片付ける。
+        LibUsbBackend.Prepare();
         var                  context = new UsbContext();
         UsbDeviceCollection? devices = null;
 

@@ -446,8 +446,18 @@ public sealed class AoaTransport : ITransport, IAsyncDisposable
     private static string DescribeEnvironment()
         => Environment.NewLine
          + Environment.NewLine
+         + "USB への経路: " + LibUsbBackend.Describe() + Environment.NewLine
+         + Environment.NewLine
          + "繋がっている USB デバイス:" + Environment.NewLine
-         + AoaDevice.DescribeUsbDevices();
+         + AoaDevice.DescribeUsbDevices()
+         + Environment.NewLine
+         + Environment.NewLine
+         + "ドライバの欄が WUDFWpdMtp などになっている端末は、"
+         + "MTP に握られていて開けません。"
+         + Environment.NewLine
+         + "UsbDk を入れると、既存のドライバを外さずに届くようになります。"
+         + Environment.NewLine
+         + "https://github.com/daynix/UsbDk/releases";
 
 
     /// <summary>
