@@ -119,7 +119,8 @@ public sealed class AoaTransport : ITransport, IAsyncDisposable
                                     or AoaDevice.SwitchOutcome.AlreadyInAccessoryMode))
             {
                 throw new InvalidOperationException(
-                    "USB 直結できる端末が見つかりませんでした。\n" + result.Detail);
+                    "USB 直結できる端末が見つかりませんでした。\n" + result.Detail
+                    + DescribeEnvironment());
             }
 
             device = WaitForAccessory(ct, out error);
@@ -127,7 +128,8 @@ public sealed class AoaTransport : ITransport, IAsyncDisposable
             if (device == null)
             {
                 throw new InvalidOperationException(
-                    "アクセサリーモードへ切り替えましたが、端末を掴めませんでした。\n" + error);
+                    "アクセサリーモードへ切り替えましたが、端末を掴めませんでした。\n" + error
+                    + DescribeEnvironment());
             }
         }
 
@@ -431,6 +433,22 @@ public sealed class AoaTransport : ITransport, IAsyncDisposable
             return string.Empty;
         }
     }
+
+    /// <summary>
+    /// 失敗の知らせに、USB まわりの様子を添える。
+    /// </summary>
+    /// <remarks>
+    /// 「端末によって使えたり使えなかったりする」の切り分けは、
+    /// Windows が何のドライバを当てたかを見ないと進まない。手元に
+    /// 無い PC で起きている以上、記録に残しておくしかない。
+    /// 例外の本文に入れておけば、そのままログへ流れる。
+    /// </remarks>
+    private static string DescribeEnvironment()
+        => Environment.NewLine
+         + Environment.NewLine
+         + "繋がっている USB デバイス:" + Environment.NewLine
+         + AoaDevice.DescribeUsbDevices();
+
 
     /// <summary>
     /// 繋がっている Android 端末の USB シリアル番号を返す。

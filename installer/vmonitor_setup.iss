@@ -86,6 +86,11 @@ Source: "{#DriverSrcDir}\MyTestCert.cer";   DestDir: "{app}\driver"; Flags: igno
 Source: "{#DriverSrcDir}\VMonitorAOA.inf";  DestDir: "{app}\driver"; Flags: ignoreversion
 Source: "{#DriverSrcDir}\vmonitoraoa.cat";  DestDir: "{app}\driver"; Flags: ignoreversion
 
+; ── 調べもの用 ──────────────────────────────────────────────────────
+; USB 直結が使えないとき、Windows が何のドライバを当てたかを並べる。
+; 手元に無い PC で起きている問題を切り分けるのに要る。
+Source: "..\driver\diagnose-usb.ps1"; DestDir: "{app}"; Flags: ignoreversion
+
 ; ドライバの削除は VMonitorSetup.exe /uninstall が行う。
 ; 以前ここにあった uninstall_driver.ps1 は、デバイスノードも証明書も
 ; 消せておらず、二重管理になっていたため使うのをやめた。

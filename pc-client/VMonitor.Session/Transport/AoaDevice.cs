@@ -502,6 +502,74 @@ public sealed class AoaDevice : IDisposable
     }
 
     /// <summary>
+    /// 繋がっている USB デバイスと、Windows が割り当てたドライバを並べる。
+    /// </summary>
+    /// <remarks>
+    /// 同じアプリなのに端末によって使えたり使えなかったりする。その差は
+    /// たいてい、Windows が何のドライバを当てたかで決まる。ドライバの
+    /// 当たっていないデバイスは、こちらから開けない。
+    ///
+    /// 手元に無い PC で起きている以上、こちらから調べに行けない。
+    /// 失敗したときに自分で書き残しておけば、記録を送ってもらうだけで
+    /// 切り分けが済む。
+    /// </remarks>
+    public static string DescribeUsbDevices()
+    {
+        if (!OperatingSystem.IsWindows())
+            return "（Windows ではないため調べられません）";
+
+        try
+        {
+            using var searcher = new System.Management.ManagementObjectSearcher(
+                "SELECT DeviceID, Name, Service, Status FROM Win32_PnPEntity " +
+                "WHERE DeviceID LIKE 'USB\\VID_%'");
+
+            var lines = new List<string>();
+
+            foreach (var entity in searcher.Get())
+            {
+                if (entity["DeviceID"] is not string id) continue;
+
+                // 同じ端末がインターフェースごとに何度も出てくる。
+                // 親だけに絞ると、肝心の割り当てが見えなくなるので残す。
+                string service = entity["Service"] as string ?? "(割り当て無し)";
+                string status  = entity["Status"]  as string ?? "?";
+                string name    = entity["Name"]    as string ?? "?";
+
+                // VID/PID だけ取り出す。シリアル番号は個人が特定できる
+                // 場合があるので載せない。
+                string vid = Extract(id, "VID_");
+                string pid = Extract(id, "PID_");
+
+                lines.Add($"  VID={vid} PID={pid} 状態={status} " +
+                          $"ドライバ={service} 名前={name}");
+            }
+
+            if (lines.Count == 0)
+                return "（USB デバイスが 1 つも見つかりませんでした）";
+
+            lines.Sort(StringComparer.Ordinal);
+
+            return string.Join(Environment.NewLine, lines);
+        }
+        catch (Exception ex)
+        {
+            return $"（一覧を取れませんでした: {ex.Message}）";
+        }
+
+        static string Extract(string id, string key)
+        {
+            int at = id.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+            if (at < 0) return "????";
+
+            int start = at + key.Length;
+            if (start + 4 > id.Length) return "????";
+
+            return id.Substring(start, 4).ToUpperInvariant();
+        }
+    }
+
+    /// <summary>
     /// デバイスを開けなかったときに、よくある原因を案内する。
     /// </summary>
     /// <remarks>
