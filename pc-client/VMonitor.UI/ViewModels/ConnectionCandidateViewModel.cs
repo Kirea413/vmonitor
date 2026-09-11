@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using VMonitor.Core.Models;
 
 namespace VMonitor.UI.ViewModels;
@@ -5,10 +7,10 @@ namespace VMonitor.UI.ViewModels;
 /// <summary>
 /// 接続候補リストの 1 エントリーを表すビューモデル。
 /// </summary>
-public sealed class ConnectionCandidateViewModel
+public sealed class ConnectionCandidateViewModel : INotifyPropertyChanged
 {
     /// <summary>候補として表示するデバイス情報。</summary>
-    public DeviceInfo Device { get; }
+    public DeviceInfo Device { get; private set; }
 
     /// <summary>デバイス名（UI 表示用）。</summary>
     public string Name => Device.Name;
@@ -34,9 +36,42 @@ public sealed class ConnectionCandidateViewModel
     /// <summary>旧名。既存の束縛が参照している。</summary>
     public string TransportIcon => TransportLabel;
 
+    /// <summary>この端末のセッションが現在動作中か。</summary>
+    public bool IsConnected
+    {
+        get => _isConnected;
+        private set
+        {
+            if (_isConnected == value) return;
+            _isConnected = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(StatusLabel));
+        }
+    }
+
+    public string StatusLabel => IsConnected ? "接続中" : "接続待ち";
+
+    private bool _isConnected;
+
     public ConnectionCandidateViewModel(DeviceInfo device, TransportType transport)
     {
         Device    = device ?? throw new ArgumentNullException(nameof(device));
         Transport = transport;
     }
+
+    public void UpdateDevice(DeviceInfo device)
+    {
+        Device = device ?? throw new ArgumentNullException(nameof(device));
+        OnPropertyChanged(nameof(Device));
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Platform));
+        OnPropertyChanged(nameof(Resolution));
+    }
+
+    public void SetConnected(bool connected) => IsConnected = connected;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

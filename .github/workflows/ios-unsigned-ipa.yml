@@ -8,7 +8,8 @@
 # 出来上がるのは署名されていない .ipa で、そのままでは端末に入らない。
 # 受け取った人が Sideloadly や AltStore などで自分の証明書を付ける前提。
 #
-# ⚠ iOS 版はこれまで一度もビルドしていない。通る保証は無い。
+# iPhone 17 で映像・タッチ・回転を確認済み。ワークフローでも毎回解析と
+# テストを通してから IPA を作る。
 
 name: iOS 無署名 IPA
 
@@ -51,6 +52,14 @@ jobs:
         working-directory: mobile-app
         run: flutter pub get
 
+      - name: 静的解析
+        working-directory: mobile-app
+        run: flutter analyze --no-fatal-infos
+
+      - name: テスト
+        working-directory: mobile-app
+        run: flutter test
+
       # ios/Podfile は追跡していない。初回ビルド時に flutter が作る。
       - name: ビルド（署名なし）
         working-directory: mobile-app
@@ -69,15 +78,19 @@ jobs:
           mkdir -p Payload
           cp -R Runner.app Payload/
           zip -qry "$name" Payload
+          shasum -a 256 "$name" > "$name.sha256"
 
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "path=$PWD/$name" >> "$GITHUB_OUTPUT"
+          echo "checksum=$PWD/$name.sha256" >> "$GITHUB_OUTPUT"
           ls -lh "$name"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.name }}
-          path: ${{ steps.package.outputs.path }}
+          path: |
+            ${{ steps.package.outputs.path }}
+            ${{ steps.package.outputs.checksum }}
           if-no-files-found: error
 
       - name: リリースへ添付する
@@ -85,7 +98,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG:  ${{ inputs.release_tag }}
-          FILE: ${{ steps.package.outputs.path }}
+          IPA: ${{ steps.package.outputs.path }}
+          CHECKSUM: ${{ steps.package.outputs.checksum }}
         run: |
           # リリースがまだ無いことは珍しくない。
           #
@@ -101,4 +115,4 @@ jobs:
             exit 0
           fi
 
-          gh release upload "$TAG" "$FILE" --clobber
+          gh release upload "$TAG" "$IPA" "$CHECKSUM" --clobber

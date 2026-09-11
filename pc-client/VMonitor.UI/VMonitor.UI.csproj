@@ -18,6 +18,13 @@
     <ProjectReference Include="..\VMonitor.Streamer\VMonitor.Streamer.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md"
+             Link="THIRD-PARTY-NOTICES.md"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!--
     VMonitor.Encoder.dll のコピーは VMonitor.Streamer 側で定義している。
     エンコーダーを直接使うのは Streamer なので、配置もそちらに持たせる。

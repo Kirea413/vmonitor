@@ -10,6 +10,7 @@ import '../renderer/renderer.dart';
 import '../renderer/renderer_view.dart';
 import '../transport/aoa_transport.dart';
 import '../transport/connect_protocol.dart';
+import '../transport/device_identity.dart';
 // Orientation / Resolution が Flutter の同名型と衝突するため接頭辞を付ける
 import '../touch/touch_input_proxy.dart' as touch;
 import '../transport/transport.dart';
@@ -317,6 +318,7 @@ class _VideoDisplayScreenState extends State<VideoDisplayScreen>
 
       final payload = jsonEncode({
         'type': 'hello',
+        'deviceId': await DeviceIdentity.loadOrCreate(),
         // 端末の種別。PC の一覧に「Android 端末」とだけ出ていたため、
         // iPhone から繋いでも Android と表示されていた。
         'platform': Platform.isIOS ? 'ios' : 'android',

@@ -88,9 +88,7 @@ public sealed class WifiTransport : ITransport, IAsyncDisposable
 
         await _tcpClient.ConnectAsync(ipEndPoint.Address, ipEndPoint.Port, ct);
 
-        // TLS ハンドシェイク
-        // 開発・テスト環境では自己署名証明書を許容する
-        // 本番環境では RemoteCertificateValidationCallback を厳密に実装する
+        // TLS ハンドシェイク。OSが信頼できない証明書は受け入れない。
         _sslStream = new SslStream(
             _tcpClient.GetStream(),
             leaveInnerStreamOpen: false,
@@ -116,6 +114,7 @@ public sealed class WifiTransport : ITransport, IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureConnected();
+        TransportFrameLimits.ValidateForSend(data.Length, channel);
 
         // ヘッダー構築
         var header = new byte[FrameHeaderSize];
@@ -166,7 +165,9 @@ public sealed class WifiTransport : ITransport, IAsyncDisposable
             }
 
             var channelId = (ChannelId)headerBuffer[0];
-            var payloadLength = (int)BinaryPrimitives.ReadUInt32BigEndian(headerBuffer.AsSpan(1));
+            var payloadLength = TransportFrameLimits.ValidateForReceive(
+                BinaryPrimitives.ReadUInt32BigEndian(headerBuffer.AsSpan(1)),
+                headerBuffer[0]);
 
             // ペイロード読み取り
             var payload = new byte[payloadLength];
@@ -240,6 +241,7 @@ public sealed class WifiTransport : ITransport, IAsyncDisposable
 
         await _sslStream.AuthenticateAsServerAsync(sslOptions, ct);
         _sendStartTickMs = Environment.TickCount64;
+        _acceptedByServer = true;
     }
 
     /// <summary>
@@ -327,8 +329,6 @@ public sealed class WifiTransport : ITransport, IAsyncDisposable
 
     /// <summary>
     /// TLS サーバー証明書の検証コールバック。
-    /// 開発・テスト環境では自己署名証明書を許容する。
-    /// 本番環境では信頼されたルート CA チェーン検証に差し替える。
     /// </summary>
     private static bool ValidateServerCertificate(
         object sender,
@@ -336,9 +336,6 @@ public sealed class WifiTransport : ITransport, IAsyncDisposable
         X509Chain? chain,
         SslPolicyErrors sslPolicyErrors)
     {
-        // 本番: sslPolicyErrors == None のみ許可
-        // 開発: 自己署名も許可（RemoteCertificateChainErrors を無視）
-        return sslPolicyErrors == SslPolicyErrors.None
-            || sslPolicyErrors == SslPolicyErrors.RemoteCertificateChainErrors;
+        return sslPolicyErrors == SslPolicyErrors.None;
     }
 }

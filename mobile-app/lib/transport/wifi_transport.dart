@@ -4,11 +4,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:multicast_dns/multicast_dns.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'transport.dart';
 
-/// Wi-Fi (TCP) トランスポートの実装。
-/// 開発段階では TLS なし素 TCP を使用する。
+/// Wi-Fi (TLS/TCP) トランスポートの実装。
 ///
 /// フレーム構造（送受信共通）:
 /// ```
@@ -20,6 +20,7 @@ import 'transport.dart';
 /// ```
 class WifiTransport implements Transport {
   static const int _frameHeaderSize = 5;
+  static const int _maxPayloadSize = 32 * 1024 * 1024;
   static const int _defaultBandwidthBps = 10 * 1000 * 1000;
 
   Socket? _socket;
@@ -42,15 +43,43 @@ class WifiTransport implements Transport {
   // 接続・切断
   // ─────────────────────────────────────────────
 
-  /// 指定ホスト・ポートへ素の TCP で接続する（開発用）。
+  /// 指定ホスト・ポートへTLSで接続する。
+  /// 初回に見た自己署名証明書を保存し、以後の接続で照合する（TOFU）。
   @override
   Future<void> connect(String host, int port) async {
-    _socket = await Socket.connect(
+    final preferences = await SharedPreferences.getInstance();
+    final pinKey = 'vmonitor.tls_pin.v1.$host:$port';
+    final trustedFingerprint = preferences.getString(pinKey);
+
+    _socket = await SecureSocket.connect(
       host,
       port,
       timeout: const Duration(seconds: 10),
+      onBadCertificate: (certificate) {
+        // 初回だけ自己署名を受け入れる。2回目以降は同じ証明書に限定する。
+        return trustedFingerprint == null ||
+            _certificateFingerprint(certificate) == trustedFingerprint;
+      },
     );
     _socket!.setOption(SocketOption.tcpNoDelay, true);
+
+    final certificate = (_socket as SecureSocket).peerCertificate;
+    if (certificate == null) {
+      await _socket?.close();
+      _socket = null;
+      throw const HandshakeException('PC のTLS証明書を取得できませんでした。');
+    }
+
+    final fingerprint = _certificateFingerprint(certificate);
+    if (trustedFingerprint != null && fingerprint != trustedFingerprint) {
+      await _socket?.close();
+      _socket = null;
+      throw const HandshakeException('PC のTLS証明書が前回の接続時と異なります。');
+    }
+
+    if (trustedFingerprint == null) {
+      await preferences.setString(pinKey, fingerprint);
+    }
 
     _sendStartMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -59,12 +88,17 @@ class WifiTransport implements Transport {
     _receiveController =
         StreamController<({ChannelId channel, Uint8List data})>();
     _socketSubscription = _socket!.cast<Uint8List>().listen(
-      _onData,
-      onDone: _onDone,
-      onError: _onError,
-      cancelOnError: false, // エラー時も受信を継続する
-    );
+          _onData,
+          onDone: _onDone,
+          onError: _onError,
+          cancelOnError: false, // エラー時も受信を継続する
+        );
   }
+
+  static String _certificateFingerprint(X509Certificate certificate) =>
+      certificate.sha1
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join();
 
   @override
   Future<void> disconnect() async {
@@ -78,7 +112,9 @@ class WifiTransport implements Transport {
     // まだ誰も受信していないので、待つと切断処理ごと止まる。
     final controller = _receiveController;
     _receiveController = null;
-    if (controller != null && !controller.isClosed) unawaited(controller.close());
+    if (controller != null && !controller.isClosed) {
+      unawaited(controller.close());
+    }
 
     await _socket?.close();
     _socket = null;
@@ -213,15 +249,16 @@ class WifiTransport implements Transport {
             .lookup<SrvResourceRecord>(
               ResourceRecordQuery.service(instanceName),
             )
-            .timeout(const Duration(seconds: 2), onTimeout: (sink) => sink.close())) {
-
+            .timeout(const Duration(seconds: 2),
+                onTimeout: (sink) => sink.close())) {
           // A レコードで IP アドレスを取得する
           String? ipAddress;
           await for (final IPAddressResourceRecord ip in client
               .lookup<IPAddressResourceRecord>(
                 ResourceRecordQuery.addressIPv4(srv.target),
               )
-              .timeout(const Duration(seconds: 2), onTimeout: (sink) => sink.close())) {
+              .timeout(const Duration(seconds: 2),
+                  onTimeout: (sink) => sink.close())) {
             ipAddress = ip.address.address;
             break;
           }
@@ -257,6 +294,14 @@ class WifiTransport implements Transport {
 
   /// フレームエンコード: ChannelId(1) + Length(4 BE) + Payload。
   static Uint8List _encodeFrame(Uint8List payload, ChannelId channel) {
+    if (payload.length > _maxPayloadSize) {
+      throw ArgumentError.value(
+        payload.length,
+        'payload.length',
+        '$_maxPayloadSize bytes 以下である必要があります',
+      );
+    }
+
     final frame = Uint8List(_frameHeaderSize + payload.length);
     frame[0] = channel.index;
 
@@ -284,16 +329,33 @@ class WifiTransport implements Transport {
           (_receiveBuffer[3] << 8) |
           _receiveBuffer[4];
 
+      if (payloadLength > _maxPayloadSize) {
+        _failProtocol('受信ペイロードが上限を超えています: $payloadLength bytes');
+        return;
+      }
+
       final totalFrameSize = _frameHeaderSize + payloadLength;
       if (_receiveBuffer.length < totalFrameSize) break; // データが足りない
 
+      if (channelByte >= ChannelId.values.length) {
+        _receiveBuffer.removeRange(0, totalFrameSize);
+        continue;
+      }
+
       final channelId = ChannelId.values[channelByte];
-      final payload =
-          Uint8List.fromList(_receiveBuffer.sublist(_frameHeaderSize, totalFrameSize));
+      final payload = Uint8List.fromList(
+          _receiveBuffer.sublist(_frameHeaderSize, totalFrameSize));
 
       _receiveBuffer.removeRange(0, totalFrameSize);
       _receiveController?.add((channel: channelId, data: payload));
     }
+  }
+
+  void _failProtocol(String message) {
+    _receiveBuffer.clear();
+    _receiveController?.addError(FormatException(message));
+    _socket?.destroy();
+    _socket = null;
   }
 
   void _onDone() {

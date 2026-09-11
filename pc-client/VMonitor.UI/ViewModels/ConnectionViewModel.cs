@@ -138,6 +138,9 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
 
     private DeviceConnectionViewModel? _device;
 
+    /// <summary>接続サーバーが提供する、端末単位の切断処理。</summary>
+    public Func<DeviceIdentifier, Task>? DisconnectDeviceAsync { get; set; }
+
     /// <summary>接続候補のリスト。mDNS 検出・USB 接続イベントで追加される。</summary>
     public ObservableCollection<ConnectionCandidateViewModel> Candidates { get; } = new();
 
@@ -236,11 +239,13 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     public void AddCandidate(DeviceInfo device, TransportType transport)
     {
-        if (Candidates.Any(c => c.Device.Id == device.Id))
-            return;
+        RunOnUiThread(() =>
+        {
+            if (Candidates.Any(c => c.Device.Id == device.Id))
+                return;
 
-        var vm = new ConnectionCandidateViewModel(device, transport);
-        Application.Current?.Dispatcher.Invoke(() => Candidates.Add(vm));
+            Candidates.Add(new ConnectionCandidateViewModel(device, transport));
+        });
     }
 
     /// <summary>
@@ -249,29 +254,53 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     public void SetConnected(DeviceInfo device, TransportType transport)
     {
-        Candidates.Clear();
-        var vm = new ConnectionCandidateViewModel(device, transport);
-        Candidates.Add(vm);
-        SelectedCandidate = vm;
-        ConnectionStatus = $"接続済み — {device.Name}";
-        DismissNotification();
+        RunOnUiThread(() =>
+        {
+            var vm = Candidates.FirstOrDefault(c => c.Device.Id == device.Id);
+            if (vm is null)
+            {
+                vm = new ConnectionCandidateViewModel(device, transport);
+                Candidates.Add(vm);
+            }
+            else
+            {
+                vm.UpdateDevice(device);
+            }
+
+            vm.SetConnected(true);
+            SelectedCandidate = vm;
+            UpdateAggregateConnectionStatus();
+            DismissNotification();
+            OnPropertyChanged(nameof(IsAnythingConnected));
+        });
     }
 
     /// <summary>
     /// 接続が切断されたことを通知する。
     /// </summary>
-    public void SetDisconnected()
+    public void SetDisconnected(DeviceIdentifier deviceId)
     {
-        ConnectionStatus = "切断されました";
-        ShowDisconnectBanner("スマホとの接続が切断されました。");
+        RunOnUiThread(() =>
+        {
+            var target = Candidates.FirstOrDefault(c => c.Device.Id == deviceId);
+            target?.SetConnected(false);
 
-        // 繋がっている扱いを解く。
-        //
-        // 選択したままにすると、切れたあとも「この端末に接続中」の
-        // 見た目が残る。電源が落ちて切れた場合など、繋がっているつもりで
-        // 操作してしまう。行そのものは、端末が見えている限り残す
-        // （また繋げるため）。見えなくなったら接続サーバー側が取り除く。
-        Application.Current?.Dispatcher.Invoke(() => SelectedCandidate = null);
+            UpdateAggregateConnectionStatus();
+            ShowDisconnectBanner(target is null
+                ? "スマホとの接続が切断されました。"
+                : $"{target.Name} との接続が切断されました。");
+
+            // 繋がっている扱いを解く。
+            //
+            // 選択したままにすると、切れたあとも「この端末に接続中」の
+            // 見た目が残る。電源が落ちて切れた場合など、繋がっているつもりで
+            // 操作してしまう。行そのものは、端末が見えている限り残す
+            // （また繋げるため）。見えなくなったら接続サーバー側が取り除く。
+            if (SelectedCandidate?.Device.Id == deviceId)
+                SelectedCandidate = null;
+
+            OnPropertyChanged(nameof(IsAnythingConnected));
+        });
     }
 
     /// <summary>
@@ -279,10 +308,12 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     public void RemoveCandidate(DeviceIdentifier deviceId)
     {
-        Application.Current?.Dispatcher.Invoke(() =>
+        RunOnUiThread(() =>
         {
             var target = Candidates.FirstOrDefault(c => c.Device.Id == deviceId);
-            if (target is not null)
+            // 探索広告や USB の監視が一時的に消えても、実セッションが
+            // 生きている端末を一覧から取り除かない。
+            if (target is not null && !target.IsConnected)
                 Candidates.Remove(target);
         });
     }
@@ -401,10 +432,19 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>どちらかの経路で繋がっているか。</summary>
     public bool IsAnythingConnected =>
+        Candidates.Any(c => c.IsConnected) ||
         (Usb?.IsConnected ?? false) || (Device?.IsConnected ?? false);
 
     private async Task DisconnectAsync()
     {
+        var selected = SelectedCandidate;
+        if (selected?.IsConnected == true && DisconnectDeviceAsync is not null)
+        {
+            ConnectionStatus = $"切断中 — {selected.Name}";
+            await DisconnectDeviceAsync(selected.Device.Id);
+            return;
+        }
+
         // 繋いだのは接続サーバーなので、切るのもそちらに頼む。
         if (Usb?.IsConnected == true)
         {
@@ -435,6 +475,29 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         {
             SetBusy(false);
         }
+    }
+
+    private void UpdateAggregateConnectionStatus()
+    {
+        int connected = Candidates.Count(c => c.IsConnected);
+        ConnectionStatus = connected switch
+        {
+            0 => "未接続",
+            1 => $"1 台接続中 — {Candidates.First(c => c.IsConnected).Name}",
+            _ => $"{connected} 台接続中",
+        };
+    }
+
+    private static void RunOnUiThread(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        dispatcher.Invoke(action);
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

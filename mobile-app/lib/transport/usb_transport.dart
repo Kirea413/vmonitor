@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'transport.dart';
 
 /// USB トランスポートの実装（Android: ADB TCP フォワード経由）
 ///
-/// Android デバイスでは ADB が PC 側の `adb forward tcp:7979 tcp:7979` によって
+/// Android デバイスでは ADB が PC 側の `adb reverse tcp:7979 tcp:7979` によって
 /// ループバックポート 7979 をトンネルしている。
-/// Flutter アプリは `localhost:7979` への通常 TCP 接続で通信する。
+/// Flutter アプリは `localhost:7979` へのTLS接続で通信する。
 ///
 /// iOS では libimobiledevice が同じポートでトンネルを提供する。
 ///
@@ -26,6 +28,8 @@ class UsbTransport implements Transport {
 
   /// フレームヘッダーサイズ
   static const int _frameHeaderSize = 5;
+
+  static const int _maxPayloadSize = 32 * 1024 * 1024;
 
   /// USB 2.0 の推定帯域幅 (480 Mbps)
   static const int _defaultBandwidthBps = 480 * 1000 * 1000;
@@ -56,29 +60,59 @@ class UsbTransport implements Transport {
     final connectHost = host.isEmpty ? '127.0.0.1' : host;
     final connectPort = port <= 0 ? _adbPort : port;
 
-    _socket = await Socket.connect(
+    final preferences = await SharedPreferences.getInstance();
+    final pinKey = 'vmonitor.tls_pin.v1.usb:$connectPort';
+    final trustedFingerprint = preferences.getString(pinKey);
+
+    _socket = await SecureSocket.connect(
       connectHost,
       connectPort,
       timeout: const Duration(seconds: 10),
+      onBadCertificate: (certificate) {
+        return trustedFingerprint == null ||
+            _certificateFingerprint(certificate) == trustedFingerprint;
+      },
     );
     _socket!.setOption(SocketOption.tcpNoDelay, true);
+
+    final certificate = (_socket as SecureSocket).peerCertificate;
+    if (certificate == null) {
+      await _socket?.close();
+      _socket = null;
+      throw const HandshakeException('PC のTLS証明書を取得できませんでした。');
+    }
+
+    final fingerprint = _certificateFingerprint(certificate);
+    if (trustedFingerprint != null && fingerprint != trustedFingerprint) {
+      await _socket?.close();
+      _socket = null;
+      throw const HandshakeException('PC のTLS証明書が前回の接続時と異なります。');
+    }
+
+    if (trustedFingerprint == null) {
+      await preferences.setString(pinKey, fingerprint);
+    }
+
     _connectTimeMs = DateTime.now().millisecondsSinceEpoch;
 
     _receiveController =
-        StreamController<({ChannelId channel, Uint8List data})>.broadcast();
+        StreamController<({ChannelId channel, Uint8List data})>();
     _socketSubscription = _socket!.cast<Uint8List>().listen(
-      _onData,
-      onDone: _onDone,
-      onError: _onError,
-    );
+          _onData,
+          onDone: _onDone,
+          onError: _onError,
+        );
   }
 
   @override
   Future<void> disconnect() async {
     await _socketSubscription?.cancel();
     _socketSubscription = null;
-    await _receiveController?.close();
+    final controller = _receiveController;
     _receiveController = null;
+    if (controller != null && !controller.isClosed) {
+      unawaited(controller.close());
+    }
     await _socket?.close();
     _socket = null;
     _receiveBuffer.clear();
@@ -123,7 +157,20 @@ class UsbTransport implements Transport {
 
   // ─── 内部処理 ────────────────────────────────────────────────────────
 
+  static String _certificateFingerprint(X509Certificate certificate) =>
+      certificate.sha1
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join();
+
   static Uint8List _encodeFrame(Uint8List payload, ChannelId channel) {
+    if (payload.length > _maxPayloadSize) {
+      throw ArgumentError.value(
+        payload.length,
+        'payload.length',
+        '$_maxPayloadSize bytes 以下である必要があります',
+      );
+    }
+
     final frame = Uint8List(_frameHeaderSize + payload.length);
     frame[0] = channel.index;
     final bd = ByteData.sublistView(frame, 1, 5);
@@ -145,10 +192,24 @@ class UsbTransport implements Transport {
           (_receiveBuffer[3] << 8) |
           _receiveBuffer[4];
 
+      if (payloadLength > _maxPayloadSize) {
+        _receiveBuffer.clear();
+        _receiveController?.addError(
+          FormatException('受信ペイロードが上限を超えています: $payloadLength bytes'),
+        );
+        unawaited(disconnect());
+        return;
+      }
+
       final totalSize = _frameHeaderSize + payloadLength;
       if (_receiveBuffer.length < totalSize) break;
 
-      final channelId = ChannelId.values[channelByte.clamp(0, ChannelId.values.length - 1)];
+      if (channelByte >= ChannelId.values.length) {
+        _receiveBuffer.removeRange(0, totalSize);
+        continue;
+      }
+
+      final channelId = ChannelId.values[channelByte];
       final payload = Uint8List.fromList(
           _receiveBuffer.sublist(_frameHeaderSize, totalSize));
       _receiveBuffer.removeRange(0, totalSize);
@@ -162,8 +223,7 @@ class UsbTransport implements Transport {
 
   void _ensureConnected() {
     if (_socket == null) {
-      throw StateError(
-          'USB 接続が確立されていません。connect() を先に呼び出してください。');
+      throw StateError('USB 接続が確立されていません。connect() を先に呼び出してください。');
     }
   }
 

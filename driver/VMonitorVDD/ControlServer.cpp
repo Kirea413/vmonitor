@@ -241,6 +241,23 @@ namespace VMonitorControl
         {
             VMTRACE("Control: CONNECT");
 
+            // パイプの相手は信頼境界の外にある。異常なモードを IddCx へ渡すと
+            // 巨大なサーフェス確保やドライバー再起動につながるため、ここで拒否する。
+            constexpr unsigned int MinWidth   = 640;
+            constexpr unsigned int MinHeight  = 480;
+            constexpr unsigned int MaxWidth   = 8192;
+            constexpr unsigned int MaxHeight  = 8192;
+            constexpr unsigned int MinRefresh = 24;
+            constexpr unsigned int MaxRefresh = 240;
+
+            if (cmd.Width < MinWidth || cmd.Width > MaxWidth ||
+                cmd.Height < MinHeight || cmd.Height > MaxHeight ||
+                cmd.RefreshRate < MinRefresh || cmd.RefreshRate > MaxRefresh)
+            {
+                VMTRACE("Control: invalid display mode rejected");
+                break;
+            }
+
             if (Ctx->AdapterObject == nullptr)
             {
                 VMTRACE("Control: adapter not ready");
@@ -359,9 +376,12 @@ namespace VMonitorControl
 
         PSECURITY_DESCRIPTOR pSd = nullptr;
 
-        // D:(A;;GA;;;WD)  = Everyone に全権限
+        // SYSTEM / LocalService は全権限、ローカルの標準ユーザーは読み書きだけ。
+        // Everyone に WRITE_DAC/WRITE_OWNER まで渡すと、任意プロセスがパイプの
+        // 権限を書き換えられるため、必要な権限だけに絞る。
         if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                L"D:(A;;GA;;;WD)", SDDL_REVISION_1, &pSd, nullptr))
+                L"D:(A;;GA;;;SY)(A;;GA;;;LS)(A;;GRGW;;;BU)",
+                SDDL_REVISION_1, &pSd, nullptr))
         {
             VMTRACE("Control: security descriptor failed");
             return 0;
@@ -374,7 +394,8 @@ namespace VMonitorControl
             HANDLE pipe = CreateNamedPipeW(
                 PipeName,
                 PIPE_ACCESS_DUPLEX,
-                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT |
+                    PIPE_REJECT_REMOTE_CLIENTS,
                 PIPE_UNLIMITED_INSTANCES,
                 sizeof(Response),
                 sizeof(Command),

@@ -19,6 +19,10 @@
   "listenPreparing": "Getting ready to listen…",
   "listenNoWifi": "Connect to Wi-Fi and this device's address will appear here.",
   "listenNotConnected": "This device does not seem to be on Wi-Fi.",
+  "iosUsbListenHint": "For USB, choose iPhone USB in the PC app.",
+  "licensesTitle": "Open source licenses",
+  "licensesSubtitle": "View the software and licenses used by this app.",
+  "licensesThanks": "vmonitor is built with open source software. We thank everyone who contributes to these projects.",
   "listenFailed": "Could not start listening: {reason}",
   "@listenFailed": {
     "placeholders": {

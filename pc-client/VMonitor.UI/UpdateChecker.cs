@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace VMonitor.UI;
@@ -9,12 +10,14 @@ namespace VMonitor.UI;
 /// <param name="Version">タグから読み取ったバージョン。</param>
 /// <param name="TagName">Releases のタグ名（表示用）。</param>
 /// <param name="DownloadUrl">インストーラーの取得先。</param>
+/// <param name="ChecksumUrl">SHA-256 サイドカーの取得先。</param>
 /// <param name="SizeBytes">インストーラーの大きさ。</param>
 /// <param name="Notes">リリースノート（先頭のみ表示に使う）。</param>
 public sealed record AvailableUpdate(
     Version Version,
     string  TagName,
     string  DownloadUrl,
+    string  ChecksumUrl,
     long    SizeBytes,
     string  Notes);
 
@@ -151,6 +154,7 @@ public sealed class UpdateChecker
             Version:     version,
             TagName:     tagName,
             DownloadUrl: asset.Value.Url,
+            ChecksumUrl: asset.Value.ChecksumUrl,
             SizeBytes:   asset.Value.Size,
             Notes:       notes.Trim());
     }
@@ -173,37 +177,74 @@ public sealed class UpdateChecker
 
         var path = Path.Combine(directory, $"vmonitor-{update.TagName}-setup.exe");
 
-        using var response = await _http.GetAsync(
-            update.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+        string expectedHash = await DownloadExpectedHashAsync(update.ChecksumUrl, ct);
 
+        try
+        {
+            using var response = await _http.GetAsync(
+                update.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            response.EnsureSuccessStatusCode();
+
+            long total = response.Content.Headers.ContentLength ?? update.SizeBytes;
+
+            await using (var source = await response.Content.ReadAsStreamAsync(ct))
+            await using (var target = File.Create(path))
+            {
+                var buffer = new byte[81920];
+                long copied = 0;
+                int  read;
+
+                while ((read = await source.ReadAsync(buffer, ct)) > 0)
+                {
+                    await target.WriteAsync(buffer.AsMemory(0, read), ct);
+
+                    copied += read;
+                    if (total > 0) onProgress?.Invoke(Math.Min(1.0, (double)copied / total));
+                }
+            }
+
+            // 中身が来ていないのに成功扱いにしない
+            if (new FileInfo(path).Length == 0)
+            {
+                throw new InvalidOperationException("ダウンロードした更新ファイルが空でした。");
+            }
+
+            await using var downloaded = File.OpenRead(path);
+            string actualHash = Convert.ToHexString(
+                await SHA256.HashDataAsync(downloaded, ct));
+
+            if (!actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "更新ファイルの SHA-256 がリリース情報と一致しません。実行を中止しました。");
+            }
+
+            return path;
+        }
+        catch
+        {
+            if (File.Exists(path)) File.Delete(path);
+            throw;
+        }
+    }
+
+    private async Task<string> DownloadExpectedHashAsync(string url, CancellationToken ct)
+    {
+        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
 
-        long total = response.Content.Headers.ContentLength ?? update.SizeBytes;
+        if (response.Content.Headers.ContentLength is > 4096)
+            throw new InvalidDataException("SHA-256 ファイルが大きすぎます。");
 
-        await using (var source = await response.Content.ReadAsStreamAsync(ct))
-        await using (var target = File.Create(path))
-        {
-            var buffer = new byte[81920];
-            long copied = 0;
-            int  read;
+        string text = await response.Content.ReadAsStringAsync(ct);
+        string candidate = text.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault() ?? string.Empty;
 
-            while ((read = await source.ReadAsync(buffer, ct)) > 0)
-            {
-                await target.WriteAsync(buffer.AsMemory(0, read), ct);
+        if (candidate.Length != 64 || candidate.Any(c => !Uri.IsHexDigit(c)))
+            throw new InvalidDataException("SHA-256 ファイルの形式が正しくありません。");
 
-                copied += read;
-                if (total > 0) onProgress?.Invoke(Math.Min(1.0, (double)copied / total));
-            }
-        }
-
-        // 中身が来ていないのに成功扱いにしない
-        if (new FileInfo(path).Length == 0)
-        {
-            File.Delete(path);
-            throw new InvalidOperationException("ダウンロードした更新ファイルが空でした。");
-        }
-
-        return path;
+        return candidate;
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────
@@ -238,10 +279,12 @@ public sealed class UpdateChecker
         version.Revision < 0 ? 0 : version.Revision);
 
     /// <summary>Releases の添付から setup.exe を探す。</summary>
-    private static (string Url, long Size)? FindInstallerAsset(JsonElement root)
+    private static (string Url, string ChecksumUrl, long Size)? FindInstallerAsset(JsonElement root)
     {
         if (!root.TryGetProperty("assets", out var assets)) return null;
         if (assets.ValueKind != JsonValueKind.Array) return null;
+
+        (string Name, string Url, long Size)? installer = null;
 
         foreach (var asset in assets.EnumerateArray())
         {
@@ -261,9 +304,27 @@ public sealed class UpdateChecker
 
             long size = asset.TryGetProperty("size", out var s) ? s.GetInt64() : 0;
 
-            return (url, size);
+            installer = (name, url, size);
+            break;
         }
 
+        if (installer is null) return null;
+
+        string checksumName = installer.Value.Name + ".sha256";
+        foreach (var asset in assets.EnumerateArray())
+        {
+            string? name = asset.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (!string.Equals(name, checksumName, StringComparison.OrdinalIgnoreCase)) continue;
+
+            string? checksumUrl = asset.TryGetProperty("browser_download_url", out var u)
+                ? u.GetString()
+                : null;
+
+            if (!string.IsNullOrWhiteSpace(checksumUrl))
+                return (installer.Value.Url, checksumUrl, installer.Value.Size);
+        }
+
+        // 検証情報が無い実行ファイルは自動更新では扱わない。
         return null;
     }
 }

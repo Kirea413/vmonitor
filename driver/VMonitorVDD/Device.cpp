@@ -69,7 +69,9 @@ static UINT        s_SupportedModeCount = 0;
 /// </remarks>
 void VMonitorVDD_SetPreferredMode(UINT width, UINT height, UINT refreshRate)
 {
-    if (width >= 640 && height >= 480)
+    if (width >= 640 && width <= 8192 &&
+        height >= 480 && height <= 8192 &&
+        refreshRate >= 24 && refreshRate <= 240)
     {
         s_SupportedModes[0].Width       = width;
         s_SupportedModes[0].Height      = height;

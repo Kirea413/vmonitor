@@ -302,11 +302,16 @@
                             Style="{StaticResource PrimaryButton}"
                             Command="{Binding ConnectCommand}"/>
 
-                    <Button Grid.Row="0" Grid.Column="4" Content="切断"
+                    <Button Grid.Row="0" Grid.Column="4" Content="iPhone USB"
+                            Style="{StaticResource SecondaryButton}"
+                            Command="{Binding IosUsbConnectCommand}"
+                            ToolTip="iproxy を使って、USB 接続中の iPhone / iPad へ接続します"/>
+
+                    <Button Grid.Row="0" Grid.Column="5" Content="切断"
                             Style="{StaticResource SecondaryButton}"
                             Command="{Binding DisconnectCommand}"/>
 
-                    <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3"
+                    <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="4"
                                Text="{Binding Status}"
                                Foreground="#6B7280" FontSize="11"
                                Margin="0,4,0,0"
@@ -364,6 +369,8 @@
                                         </TextBlock>
                                         <TextBlock Text="{Binding TransportIcon}" FontSize="11"
                                                    Foreground="#6B7280" Margin="0,1,0,0"/>
+                                        <TextBlock Text="{Binding StatusLabel}" FontSize="11"
+                                                   Foreground="#15803D" Margin="0,1,0,0"/>
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>
@@ -569,6 +576,18 @@
                 </TabItem.Header>
                 <local:ErrorLogView x:Name="SettingsView"
                     xmlns:local="clr-namespace:VMonitor.UI"/>
+            </TabItem>
+
+            <!-- 信頼済み端末タブ -->
+            <TabItem Style="{StaticResource Tab}" Header="信頼済み端末">
+                <local:TrustedDevicesView x:Name="TrustedDevicesView"
+                    xmlns:local="clr-namespace:VMonitor.UI"/>
+            </TabItem>
+
+            <!-- 利用しているOSSへの謝辞と配布条件。設定の奥へ隠さず、
+                 PCアプリからいつでも読める独立した画面にする。 -->
+            <TabItem Style="{StaticResource Tab}" Header="ライセンス">
+                <local:LicensesView xmlns:local="clr-namespace:VMonitor.UI"/>
             </TabItem>
 
         </TabControl>

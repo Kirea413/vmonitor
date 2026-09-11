@@ -124,6 +124,7 @@ public sealed class UsbTransport : ITransport, IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureConnected();
+        TransportFrameLimits.ValidateForSend(data.Length, channel);
 
         // ヘッダー構築
         var header = new byte[FrameHeaderSize];
@@ -169,7 +170,9 @@ public sealed class UsbTransport : ITransport, IAsyncDisposable
             }
 
             var channelId = (ChannelId)headerBuffer[0];
-            var payloadLength = (int)BinaryPrimitives.ReadUInt32BigEndian(headerBuffer.AsSpan(1));
+            var payloadLength = TransportFrameLimits.ValidateForReceive(
+                BinaryPrimitives.ReadUInt32BigEndian(headerBuffer.AsSpan(1)),
+                headerBuffer[0]);
 
             // ペイロードを完全に読み取る
             var payload = new byte[payloadLength];

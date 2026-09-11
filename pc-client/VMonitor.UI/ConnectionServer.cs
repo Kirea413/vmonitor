@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -45,7 +47,35 @@ public sealed class ConnectionServer
     /// 効いているのかどうかも分かりにくい。設定を保存したら、その場で
     /// 作り直すようにする。
     /// </remarks>
-    private Action? _rebuildCapture;
+    private readonly ConcurrentDictionary<Guid, Action> _captureRebuilders = new();
+
+    /// <summary>同時に保持するセッション数の上限。誤接続や接続洪水からPCを守る。</summary>
+    public const int MaxConcurrentSessions = 8;
+
+    private readonly SemaphoreSlim _sessionSlots = new(MaxConcurrentSessions, MaxConcurrentSessions);
+
+    /// <summary>
+    /// 現行VDDは仮想モニターを1枚だけ持つ。最初のセッションだけが拡張画面を使い、
+    /// 追加セッションはメイン画面のミラーへ安全にフォールバックする。
+    /// </summary>
+    private readonly SemaphoreSlim _virtualDisplaySlot = new(1, 1);
+
+    private readonly ConcurrentDictionary<Guid, ActiveClientSession> _activeSessions = new();
+
+    private sealed class ActiveClientSession
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public required DeviceIdentifier DeviceId { get; set; }
+        public required CancellationTokenSource Cancellation { get; init; }
+        public required bool ReportTransportState { get; init; }
+        public required bool ReportAsOutbound { get; init; }
+        public string? DeviceName { get; set; }
+        public DevicePlatform? DevicePlatform { get; set; }
+        public System.Diagnostics.Stopwatch ProbeClock { get; } =
+            System.Diagnostics.Stopwatch.StartNew();
+        public long LastPongMs;
+        public long TouchEventCount;
+    }
 
     /// <summary>ディスプレイ設定を反映する。繋がっていればその場で作り直す。</summary>
     public void UpdateDisplaySettings(DisplaySettings settings)
@@ -60,7 +90,11 @@ public sealed class ConnectionServer
 
         _displaySettings = updated;
 
-        if (needsRebuild) _rebuildCapture?.Invoke();
+        if (needsRebuild)
+        {
+            foreach (var rebuild in _captureRebuilders.Values)
+                rebuild();
+        }
     }
 
     public ConnectionServer(
@@ -73,6 +107,18 @@ public sealed class ConnectionServer
         _vdd = vdd;
         _authManager = authManager;
         _logger = logger;
+        _vm.DisconnectDeviceAsync = DisconnectDeviceAsync;
+    }
+
+    /// <summary>指定端末に属する全セッションを切断する。</summary>
+    public Task DisconnectDeviceAsync(DeviceIdentifier deviceId)
+    {
+        foreach (var session in _activeSessions.Values.Where(s => s.DeviceId == deviceId))
+        {
+            try { session.Cancellation.Cancel(); } catch { }
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -110,8 +156,9 @@ public sealed class ConnectionServer
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
 
-        // 自己署名証明書を生成（開発用）
-        var cert = GenerateSelfSignedCertificate();
+        // 初回だけ自己署名証明書を生成し、以後は同じものを使う。
+        // 端末側は初回接続時の証明書を保存して再接続時に照合する。
+        var cert = LoadOrCreateServerCertificate();
 
         // mDNS でサービスをアドバタイズする（Flutter アプリが探索できるようにする）
         var mdns = new MdnsService();
@@ -240,7 +287,6 @@ public sealed class ConnectionServer
     /// 断りなく相手の画面を使い始めないための決まりごと。
     /// </para>
     /// </remarks>
-    private volatile bool _pcInitiated;
 
     /// <summary>
     /// 接続待ちで見張っている合図。押されたらここを完了させる。
@@ -273,7 +319,6 @@ public sealed class ConnectionServer
     public void ConnectUsbNow()
     {
         AutoConnectUsb = true;
-        _pcInitiated   = true;
 
         // 押されたことを必ず 1 回ぶん残す。時刻も一緒に残して、
         // 古くなった押下が後の接続に効かないようにする。
@@ -330,6 +375,11 @@ public sealed class ConnectionServer
         _cts?.Cancel();
         _listener?.Stop();
 
+        foreach (var session in _activeSessions.Values)
+        {
+            try { session.Cancellation.Cancel(); } catch { }
+        }
+
         // 後始末は受信のタイムアウト待ちを含むので、少し余裕をみる
         _usbWatcherStopped.Wait(TimeSpan.FromSeconds(6));
     }
@@ -377,6 +427,15 @@ public sealed class ConnectionServer
     /// <param name="host">端末の IP アドレス。</param>
     /// <param name="port">端末が待ち受けているポート。</param>
     public async Task ConnectToDeviceAsync(string host, int port)
+        => await ConnectOutboundAsync(host, port, iosUsb: false);
+
+    /// <summary>
+    /// usbmuxd のポート転送を通して、USB 接続中の iPhone / iPad へ接続する。
+    /// </summary>
+    public async Task ConnectToIosUsbAsync(string? udid = null)
+        => await ConnectOutboundAsync(IPAddress.Loopback.ToString(), DevicePort, iosUsb: true, udid);
+
+    private async Task ConnectOutboundAsync(string host, int port, bool iosUsb, string? udid = null)
     {
         if (IsOutboundBusy || IsOutboundConnected)
         {
@@ -423,14 +482,14 @@ public sealed class ConnectionServer
         }
 
         // PC から繋ぎにいくので、承認はスマホ側で取る
-        _pcInitiated = true;
 
         // 押された印（_pcConnectRequested）はここでは立てない。
         // 印は消し損ねるとセッションをまたいで残る。代わりに、
         // このセッションが「PC から繋ぎに行ったもの」であることを
         // 引数で直接伝える。
 
-        SetOutboundState($"{address}:{port} へ接続しています…", connected: false, busy: true);
+        string targetLabel = iosUsb ? "iPhone（USB）" : $"{address}:{port}";
+        SetOutboundState($"{targetLabel} へ接続しています…", connected: false, busy: true);
 
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(
             _cts?.Token ?? CancellationToken.None);
@@ -438,9 +497,17 @@ public sealed class ConnectionServer
         _outboundCts = sessionCts;
 
         WifiTransport? transport = null;
+        IosUsbTunnel? iosTunnel = null;
 
         try
         {
+            if (iosUsb)
+            {
+                iosTunnel = new IosUsbTunnel();
+                port = await iosTunnel.StartAsync(udid, sessionCts.Token);
+                address = IPAddress.Loopback;
+            }
+
             transport = new WifiTransport();
 
             // 相手が待っていない場合に長く固まらせない
@@ -449,20 +516,20 @@ public sealed class ConnectionServer
 
             await transport.ConnectPlainAsync(new IPEndPoint(address, port), connectCts.Token);
 
-            _logger.Info("ConnectionServer", $"Connected to device: {address}:{port}");
+            _logger.Info("ConnectionServer", $"Connected to device: {targetLabel}");
 
             // 同じ相手に繋ぎ直したら同じ行に戻るよう、宛先から識別子を決める
             var device = new DeviceInfo(
-                Id: DeviceIdentifier.FromKey($"vmonitor:wifi:{address}"),
-                Name: DescribeDevice($"（{address}）", usb: false).Name,
-                Platform: DescribeDevice($"（{address}）", usb: false).Platform,
+                Id: DeviceIdentifier.FromKey(iosUsb ? $"vmonitor:ios-usb:{udid ?? "default"}" : $"vmonitor:wifi:{address}"),
+                Name: iosUsb ? "iPhone / iPad（USB）" : DescribeDevice($"（{address}）", usb: false).Name,
+                Platform: iosUsb ? DevicePlatform.iOS : DescribeDevice($"（{address}）", usb: false).Platform,
                 PhysicalResolution: new Resolution(1080, 1920),
                 PixelDensity: 420f);
 
-            SetOutboundState($"{address}:{port} に接続中", connected: true, busy: false);
+            SetOutboundState($"{targetLabel} に接続中", connected: true, busy: false);
 
-            await RunSessionAsync(transport, device, $"{address}:{port}",
-                                  VMonitor.Core.Models.TransportType.WiFi,
+            await RunSessionAsync(transport, device, targetLabel,
+                                  iosUsb ? VMonitor.Core.Models.TransportType.USB : VMonitor.Core.Models.TransportType.WiFi,
                                   sessionCts.Token, pcInitiated: true);
 
             SetOutboundState("切断しました", connected: false, busy: false);
@@ -486,6 +553,9 @@ public sealed class ConnectionServer
 
             if (transport is not null)
                 await transport.DisposeAsync();
+
+            if (iosTunnel is not null)
+                await iosTunnel.DisposeAsync();
         }
     }
 
@@ -798,12 +868,6 @@ public sealed class ConnectionServer
     /// 往復時間はおおむね PC → 端末の待ち時間とみてよい。
     /// </para>
     /// </remarks>
-    /// <summary>往復時間を測るための時計。セッションごとに作り直す。</summary>
-    private readonly System.Diagnostics.Stopwatch _probeClock = System.Diagnostics.Stopwatch.StartNew();
-
-    /// <summary>相手から最後に応答があった時刻。</summary>
-    private long _lastPongMs;
-
     /// <summary>
     /// これだけ応答が無ければ、相手は居なくなったとみなす。
     /// </summary>
@@ -816,9 +880,12 @@ public sealed class ConnectionServer
     private const int PeerSilenceLimitMs = 12_000;
 
     private async Task SendLatencyProbesAsync(
-        ITransport transport, CancellationTokenSource sessionCts, CancellationToken ct)
+        ITransport transport,
+        CancellationTokenSource sessionCts,
+        ActiveClientSession runtime,
+        CancellationToken ct)
     {
-        _lastPongMs = _probeClock.ElapsedMilliseconds;
+        runtime.LastPongMs = runtime.ProbeClock.ElapsedMilliseconds;
 
         try
         {
@@ -827,12 +894,13 @@ public sealed class ConnectionServer
                 await Task.Delay(2000, ct);
 
                 var payload = System.Text.Encoding.UTF8.GetBytes(
-                    $"{{\"type\":\"ping\",\"t\":{_probeClock.ElapsedMilliseconds}}}");
+                    $"{{\"type\":\"ping\",\"t\":{runtime.ProbeClock.ElapsedMilliseconds}}}");
 
                 await transport.SendAsync(payload, ChannelId.Control, ct);
 
                 // 応答が絶えたら、こちらから畳む。
-                long silence = _probeClock.ElapsedMilliseconds - Volatile.Read(ref _lastPongMs);
+                long silence = runtime.ProbeClock.ElapsedMilliseconds -
+                               Volatile.Read(ref runtime.LastPongMs);
 
                 if (silence < PeerSilenceLimitMs) continue;
 
@@ -854,7 +922,7 @@ public sealed class ConnectionServer
     }
 
     /// <summary>端末から返ってきた応答から往復時間を求めて記録する。</summary>
-    private void HandleLatencyPong(ReadOnlySpan<byte> payload)
+    private void HandleLatencyPong(ReadOnlySpan<byte> payload, ActiveClientSession runtime)
     {
         try
         {
@@ -865,10 +933,10 @@ public sealed class ConnectionServer
 
             if (!document.RootElement.TryGetProperty("t", out var t)) return;
 
-            long now = _probeClock.ElapsedMilliseconds;
+            long now = runtime.ProbeClock.ElapsedMilliseconds;
 
             // 生きている証。これが途絶えたら切断とみなす。
-            Volatile.Write(ref _lastPongMs, now);
+            Volatile.Write(ref runtime.LastPongMs, now);
 
             _logger.Info("ConnectionServer", $"Round trip to device: {now - t.GetInt64()} ms");
         }
@@ -910,6 +978,7 @@ public sealed class ConnectionServer
         ITransport transport,
         IAsyncEnumerator<(ChannelId Channel, Memory<byte> Data)> receiver,
         Task<bool>? carriedRead,
+        ActiveClientSession runtime,
         CancellationToken ct)
     {
         // こちらから聞きにいく。
@@ -949,10 +1018,12 @@ public sealed class ConnectionServer
 
             // 呼び名も一緒に名乗ってくる。一覧に出すために覚えておく。
             var announcedName = TryParseHelloName(data.Span);
-            if (announcedName is not null) _lastDeviceName = announcedName;
+            if (announcedName is not null) runtime.DeviceName = announcedName;
 
             var announcedPlatform = TryParseHelloPlatform(data.Span);
-            if (announcedPlatform is not null) _lastDevicePlatform = announcedPlatform;
+            if (announcedPlatform is not null) runtime.DevicePlatform = announcedPlatform;
+
+            ReadConnectIdentity(data.Span, runtime);
 
             var reported = TryParseHelloResolution(data.Span);
             if (reported is not null)
@@ -1090,7 +1161,8 @@ public sealed class ConnectionServer
         DeviceInfo                            device,
         VMonitor.Core.Models.TransportType    transportType,
         CancellationToken                     ct,
-        bool                                  pcInitiated = false)
+        bool                                  pcInitiated,
+        ActiveClientSession                   runtime)
     {
         // この PC から繋ぎに行ったと分かっているなら、誰が言い出したかを
         // 待つ必要はない。そのままスマホへ承認を求める。
@@ -1102,7 +1174,8 @@ public sealed class ConnectionServer
         // という待ち合いになって、どちらにもダイアログが出ないまま
         // 時間切れになっていた。
         if (pcInitiated)
-            return await AskDeviceAsync(transport, receiver, null, transportType, ct);
+            return await AskDeviceAsync(
+                transport, receiver, null, transportType, runtime, ct);
 
         // まず「誰が繋ぎたいのか」を待つ。
         //
@@ -1114,7 +1187,7 @@ public sealed class ConnectionServer
         //     追い越されて、スマホに要求が届かない
         // という取りこぼしが起きていた。
         var (trigger, pending) = await WaitForConnectTriggerAsync(
-            transport, receiver, transportType, ct);
+            transport, receiver, transportType, runtime, ct);
 
         if (trigger == ConnectTrigger.Aborted) return (false, pending);
 
@@ -1125,12 +1198,21 @@ public sealed class ConnectionServer
             // 渡さずに AskDeviceAsync が新しく MoveNextAsync を呼ぶと、
             // 同じ列挙子への同時呼び出しになり NotSupportedException で
             // セッションごと落ちる。実際にそれが起きていた。
-            return await AskDeviceAsync(transport, receiver, pending, transportType, ct);
+            return await AskDeviceAsync(
+                transport, receiver, pending, transportType, runtime, ct);
         }
 
-        SetTransportState(transportType, "この PC で承認を待っています…", connected: false);
+        SetSessionTransportState(runtime, transportType,
+            "この PC で承認を待っています…", connected: false);
 
-        var authResult = await _authManager.RequestAuthorizationAsync(device);
+        var authorizationDevice = device with
+        {
+            Id = runtime.DeviceId,
+            Name = runtime.DeviceName ?? device.Name,
+            Platform = runtime.DevicePlatform ?? device.Platform,
+        };
+
+        var authResult = await _authManager.RequestAuthorizationAsync(authorizationDevice);
         bool approved  = authResult != AuthResult.Denied;
 
         // 返事を相手にも伝える。スマホは「PC の承認を待っています」で
@@ -1170,6 +1252,7 @@ public sealed class ConnectionServer
         ITransport                            transport,
         IAsyncEnumerator<(ChannelId Channel, Memory<byte> Data)> receiver,
         VMonitor.Core.Models.TransportType    transportType,
+        ActiveClientSession                   runtime,
         CancellationToken                     ct)
     {
         // ボタンが既に押されていたなら、待たずに進む。
@@ -1193,7 +1276,7 @@ public sealed class ConnectionServer
 
         Volatile.Write(ref _pcConnectSignal, pressed);
 
-        SetTransportState(transportType,
+        SetSessionTransportState(runtime, transportType,
             "接続待ち — この PC かスマホで「接続」を押してください", connected: false);
 
         try
@@ -1222,12 +1305,14 @@ public sealed class ConnectionServer
                 // 返さないと、繋がっているのに永久に押せないままになる。
                 await ReplyToPingAsync(transport, data, ct);
 
+                ReadConnectIdentity(data.Span, runtime);
+
                 // 呼び名を名乗ってくることがある。拾えるうちに拾っておく。
                 var announced = TryParseHelloName(data.Span);
 
                 if (announced is not null)
                 {
-                    _lastDeviceName = announced;
+                    runtime.DeviceName = announced;
 
                     // 一覧の表示をその場で差し替える。
                     // 繋ぐ前に機種名が分かれば、どれを選べばよいか迷わない。
@@ -1342,6 +1427,51 @@ public sealed class ConnectionServer
         }
     }
 
+    /// <summary>接続要求に含まれる永続端末IDと表示情報を取り込む。</summary>
+    private static void ReadConnectIdentity(
+        ReadOnlySpan<byte> payload, ActiveClientSession runtime)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(payload.ToArray());
+            var root = document.RootElement;
+
+            if (!root.TryGetProperty("type", out var type)) return;
+            var messageType = type.GetString();
+            if (messageType is not ("connect_request" or "hello")) return;
+
+            if (root.TryGetProperty("deviceId", out var id))
+            {
+                var value = id.GetString();
+                if (!string.IsNullOrWhiteSpace(value) && value.Length <= 128)
+                    runtime.DeviceId = DeviceIdentifier.FromKey($"vmonitor:mobile:{value}");
+            }
+
+            bool hasName = root.TryGetProperty("deviceName", out var name) ||
+                           root.TryGetProperty("name", out name);
+            if (hasName)
+            {
+                var value = name.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(value))
+                    runtime.DeviceName = value.Length <= 100 ? value : value[..100];
+            }
+
+            if (root.TryGetProperty("platform", out var platform))
+            {
+                runtime.DevicePlatform = platform.GetString()?.ToLowerInvariant() switch
+                {
+                    "ios" => DevicePlatform.iOS,
+                    "android" => DevicePlatform.Android,
+                    _ => runtime.DevicePlatform,
+                };
+            }
+        }
+        catch
+        {
+            // 古い端末や別の制御メッセージは従来どおり扱う。
+        }
+    }
+
     /// <summary>
     /// スマホ側に承認を求め、返事を待つ。
     /// </summary>
@@ -1350,6 +1480,7 @@ public sealed class ConnectionServer
         IAsyncEnumerator<(ChannelId Channel, Memory<byte> Data)> receiver,
         Task<bool>?                           carriedRead,
         VMonitor.Core.Models.TransportType    transportType,
+        ActiveClientSession                   runtime,
         CancellationToken                     ct)
     {
         try
@@ -1362,11 +1493,13 @@ public sealed class ConnectionServer
         catch (Exception ex)
         {
             _logger.Warn("ConnectionServer", $"接続の申し込みを送れませんでした: {ex.Message}");
-            SetTransportState(transportType, "スマホに要求を送れませんでした", connected: false);
+            SetSessionTransportState(runtime, transportType,
+                "スマホに要求を送れませんでした", connected: false);
             return (false, null);
         }
 
-        SetTransportState(transportType, "スマホの承認を待っています…", connected: false);
+        SetSessionTransportState(runtime, transportType,
+            "スマホの承認を待っています…", connected: false);
         _logger.Info("ConnectionServer", "スマホの承認を待っています");
 
         var timeout = Task.Delay(ApprovalTimeout, ct);
@@ -1385,7 +1518,7 @@ public sealed class ConnectionServer
                 // 「待っています」のままだと理由が分からない。
                 _logger.Info("ConnectionServer", "スマホからの返事がありませんでした");
 
-                SetTransportState(transportType,
+                SetSessionTransportState(runtime, transportType,
                     "スマホから返事がありません。vmonitor が入っているか、起動しているか確認してください",
                     connected: false);
 
@@ -1397,13 +1530,18 @@ public sealed class ConnectionServer
             var (channel, data) = receiver.Current;
             if (channel != ChannelId.Control) continue;
 
+            // hello は承認の返事より先に届くことがある。ここで拾わないと
+            // PC 発信時だけ永続端末 ID が失われる。
+            ReadConnectIdentity(data.Span, runtime);
+
             var accepted = TryParseConnectResponse(data.Span);
             if (accepted is null) continue;
 
             if (accepted == false)
             {
                 _logger.Info("ConnectionServer", "スマホ側で拒否されました");
-                SetTransportState(transportType, "スマホ側で拒否されました", connected: false);
+                SetSessionTransportState(runtime, transportType,
+                    "スマホ側で拒否されました", connected: false);
             }
 
             return (accepted.Value, null);
@@ -1459,6 +1597,25 @@ public sealed class ConnectionServer
             SetUsbState(status, connected);
         else
             SetOutboundState(status, connected, busy: !connected);
+    }
+
+    private void SetSessionTransportState(
+        ActiveClientSession runtime,
+        VMonitor.Core.Models.TransportType transportType,
+        string status,
+        bool connected)
+    {
+        // 端末から入ってきた Wi-Fi セッションは候補一覧が状態を持つ。
+        // 旧来の単一状態へ書くと、1 台の切断が別端末の表示まで消してしまう。
+        if (runtime.ReportTransportState)
+        {
+            // iOS USB は物理的にはUSBだが、PC発信欄から開始する。
+            // Android AOAの状態欄を上書きせず、押した欄へ結果を返す。
+            if (runtime.ReportAsOutbound)
+                SetOutboundState(status, connected, busy: !connected);
+            else
+                SetTransportState(transportType, status, connected);
+        }
     }
 
     /// <summary>
@@ -1602,9 +1759,9 @@ public sealed class ConnectionServer
 
         try
         {
-            // 開発段階: 素 TCP（TLS なし）でトランスポートを確立する
+            // 端末からPCへ入る通常経路はTLSで保護する。
             var transport = new WifiTransport();
-            transport.AcceptPlain(tcpClient);
+            await transport.AcceptAsync(tcpClient, cert, ct);
 
             // デバイス情報を仮作成（実際は制御チャンネルで受け取る）
             var remoteAddr = (tcpClient.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "unknown";
@@ -1662,6 +1819,13 @@ public sealed class ConnectionServer
     {
         var outcome = SessionOutcome.Completed;
 
+        if (!await _sessionSlots.WaitAsync(0, ct))
+        {
+            _logger.Warn("ConnectionServer",
+                $"同時接続上限 ({MaxConcurrentSessions}) のため拒否しました: {label}");
+            return SessionOutcome.Denied;
+        }
+
         // このセッションだけを畳むための札。
         //
         // 応答が絶えたときに、外側の待ち受けを止めずにここだけ終わらせる。
@@ -1669,6 +1833,18 @@ public sealed class ConnectionServer
         // 繰り返すだけで、セッションが永遠に生き続ける。
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         ct = sessionCts.Token;
+
+        var runtime = new ActiveClientSession
+        {
+            DeviceId = device.Id,
+            Cancellation = sessionCts,
+            ReportTransportState =
+                transportType == VMonitor.Core.Models.TransportType.USB || pcInitiated,
+            ReportAsOutbound = pcInitiated,
+        };
+        _activeSessions[runtime.Id] = runtime;
+
+        bool virtualDisplaySlotHeld = false;
 
         var streamer = new VMonitor.Streamer.Streamer();
 
@@ -1684,6 +1860,7 @@ public sealed class ConnectionServer
         // 後始末の順番に決まりがあるので、try の外で持つ。
         IAsyncEnumerator<(ChannelId Channel, Memory<byte> Data)>? receiver = null;
         Task<bool>? pendingRead = null;
+        bool uiConnected = false;
 
         try
         {
@@ -1695,7 +1872,7 @@ public sealed class ConnectionServer
 
             // どちらが言い出したかで、承認を出す先が変わる。
             var (approved, leftover) = await NegotiateConnectAsync(
-                transport, receiver, device, transportType, ct, pcInitiated);
+                transport, receiver, device, transportType, ct, pcInitiated, runtime);
 
             pendingRead = leftover;
 
@@ -1706,27 +1883,61 @@ public sealed class ConnectionServer
                 return outcome;
             }
 
+            device = device with
+            {
+                Id = runtime.DeviceId,
+                Name = runtime.DeviceName ?? device.Name,
+                Platform = runtime.DevicePlatform ?? device.Platform,
+            };
+
             // 端末の画面サイズを聞く。仮想ディスプレイをそれに合わせて作る。
             //
             // 承認のやり取りで投げたままの読み出しがあれば引き継ぐ。
             // 同じ列挙子に MoveNextAsync を重ねて呼ぶことはできない。
             var (reported, pending) = await WaitForDeviceHelloAsync(
-                transport, receiver, pendingRead, ct);
+                transport, receiver, pendingRead, runtime, ct);
 
             pendingRead = pending;
 
             if (reported is not null)
                 device = device with { PhysicalResolution = reported };
 
+            if (runtime.DevicePlatform is not null)
+                device = device with { Platform = runtime.DevicePlatform.Value };
+
+            // PC 発信では承認待ちの後に初めて安定端末 ID が届くことがある。
+            device = device with
+            {
+                Id = runtime.DeviceId,
+                Name = runtime.DeviceName ?? device.Name,
+            };
+
             // 端末が名乗ってきたら、一覧の表示をその呼び名に差し替える。
             // 「Android 端末（USB）」のままだと、複数台あるとき見分けが付かない。
-            if (_lastDeviceName is not null)
+            if (runtime.DeviceName is not null)
             {
-                device = device with { Name = _lastDeviceName };
-                RenameUsbCandidate(_lastDeviceName, transportType);
+                device = device with { Name = runtime.DeviceName };
+
+                if (transportType == VMonitor.Core.Models.TransportType.USB)
+                {
+                    _lastDeviceName = runtime.DeviceName;
+                    _lastDevicePlatform = runtime.DevicePlatform;
+                    RenameUsbCandidate(runtime.DeviceName, transportType);
+                }
             }
 
-            bool requireVirtualDisplay = _displaySettings.RequireVirtualDisplay;
+            virtualDisplaySlotHeld = await _virtualDisplaySlot.WaitAsync(0, ct);
+
+            // 現行ドライバーが持てる拡張画面は1枚。追加端末まで拒否すると
+            // 複数台接続そのものができないため、追加分はメイン画面をミラーする。
+            bool requireVirtualDisplay =
+                _displaySettings.RequireVirtualDisplay && virtualDisplaySlotHeld;
+
+            if (!virtualDisplaySlotHeld)
+            {
+                _logger.Info("ConnectionServer",
+                    "仮想ディスプレイは別セッションが使用中です。追加端末にはメイン画面を配信します。");
+            }
 
             // 仮想ディスプレイドライバが入っていれば、この接続の間だけ
             // 仮想モニターを接続状態にする。
@@ -1735,9 +1946,11 @@ public sealed class ConnectionServer
             // ディスプレイが 1 枚多く見えたままになり、ウィンドウがそちらへ
             // 飛んだりマウスが画面外へ抜けたりする。
             //
-            virtualDisplay = VirtualDisplayControl.TryOpen();
+            virtualDisplay = virtualDisplaySlotHeld
+                ? VirtualDisplayControl.TryOpen()
+                : null;
 
-            if (virtualDisplay is null)
+            if (virtualDisplay is null && virtualDisplaySlotHeld)
                 _logger.Info("ConnectionServer", "Virtual display driver not installed");
 
             // 指定した解像度で取り込みの構成を作り直す。
@@ -1913,16 +2126,15 @@ public sealed class ConnectionServer
             var sessionManager = new SessionManager(transport, mirror!, injector!);
             var session = await sessionManager.EstablishSessionAsync(device, ct);
             _logger.Info("ConnectionServer", $"Session established: {session.SessionId}");
+            _authManager.UpdateLastConnected(device.Id);
 
             // SessionManager はセッション確立時に「スマホの解像度」で変換を設定する。
             // スマホに映っているのは取り込み元のディスプレイなので、そちらに戻す。
             injector!.UpdateTransform(mirror!.Resolution, Orientation.Portrait);
 
             // 接続済みとして UI に通知（候補リストに1回だけ追加）
-            Application.Current?.Dispatcher.Invoke(() =>
-            {
-                _vm.SetConnected(device, transportType);
-            });
+            _vm.SetConnected(device, transportType);
+            uiConnected = true;
 
             // 映像ストリーミングを開始する（キャプチャ → H.264 エンコード → 送信）
             async Task StartStreamingAsync()
@@ -1940,7 +2152,7 @@ public sealed class ConnectionServer
             //
             // 呼ばれるのは UI スレッド。ここで待つと画面が固まるので、
             // 別スレッドへ逃がしてから作り直す。
-            _rebuildCapture = () => _ = Task.Run(async () =>
+            _captureRebuilders[runtime.Id] = () => _ = Task.Run(async () =>
             {
                 try
                 {
@@ -1959,7 +2171,7 @@ public sealed class ConnectionServer
             _ = LogStreamerHealthAsync(streamer, ct);
 
             // 遅れの計測と、相手が生きているかの見張りを兼ねる
-            _ = SendLatencyProbesAsync(transport, sessionCts, ct);
+            _ = SendLatencyProbesAsync(transport, sessionCts, runtime, ct);
 
             // 受信ループ（タッチ・制御チャンネルを処理）。
             // 名乗りを受け取ったのと同じ列挙子の続きから読む。
@@ -1991,7 +2203,7 @@ public sealed class ConnectionServer
                         // ただし「離す」は通す。指を置いたまま設定を切り替えると、
                         // 押しっぱなしの接触が PC に残り、そのままでは
                         // マウス操作もできなくなる。
-                        HandleTouchPayload(data.Span, injector!, mirror!.Resolution,
+                        HandleTouchPayload(data.Span, injector!, mirror!.Resolution, runtime,
                                            releasesOnly: !_displaySettings.EnableTouch);
                         break;
 
@@ -2004,13 +2216,13 @@ public sealed class ConnectionServer
                         if (IsGoodbye(data.Span))
                         {
                             _logger.Info("ConnectionServer", "スマホ側から切断されました");
-                            SetTransportState(transportType,
+                            SetSessionTransportState(runtime, transportType,
                                 "スマホ側から切断されました", connected: false);
                             return outcome;
                         }
 
                         // 往復時間の応答なら記録して終わり
-                        HandleLatencyPong(data.Span);
+                            HandleLatencyPong(data.Span, runtime);
 
                         var announced = TryParseHelloResolution(data.Span);
 
@@ -2051,7 +2263,7 @@ public sealed class ConnectionServer
         {
             // セッションが終わったら、作り直しの受け口も外す。
             // 残すと、次に設定を保存したとき既に無いものを触りにいく。
-            _rebuildCapture = null;
+            _captureRebuilders.TryRemove(runtime.Id, out _);
 
             // 仮想モニターを真っ先に外す。
             //
@@ -2098,7 +2310,15 @@ public sealed class ConnectionServer
             injector?.Dispose();
             mirror?.Dispose();
 
-            Application.Current?.Dispatcher.Invoke(() => _vm.SetDisconnected());
+            _activeSessions.TryRemove(runtime.Id, out _);
+
+            if (virtualDisplaySlotHeld)
+                _virtualDisplaySlot.Release();
+
+            _sessionSlots.Release();
+
+            if (uiConnected)
+                _vm.SetDisconnected(device.Id);
             _logger.Info("ConnectionServer", $"Session ended: {label}");
         }
 
@@ -2141,11 +2361,9 @@ public sealed class ConnectionServer
     /// 壊れたパケットはデコーダーが null を返すので、その場合は黙って捨てる。
     /// 不正な入力で接続ごと落とさないため、例外はここで止める。
     /// </remarks>
-    /// <summary>受信したタッチイベント数（診断用）。</summary>
-    private long _touchEventCount;
-
     private void HandleTouchPayload(
         ReadOnlySpan<byte> payload, WindowsInkInjector injector, Resolution displayResolution,
+        ActiveClientSession runtime,
         bool releasesOnly = false)
     {
         var touchEvent = TouchEventCodec.Decode(payload);
@@ -2168,7 +2386,7 @@ public sealed class ConnectionServer
 
         // 最初の 1 件と、以降は 100 件ごとに記録する。
         // 毎回出すとログが映像より速く流れて読めなくなる。
-        long count = Interlocked.Increment(ref _touchEventCount);
+        long count = Interlocked.Increment(ref runtime.TouchEventCount);
 
         try
         {
@@ -2256,21 +2474,57 @@ public sealed class ConnectionServer
     }
 
     /// <summary>開発用の自己署名証明書を生成する。</summary>
-    private static X509Certificate2 GenerateSelfSignedCertificate()
+    private const string CertificatePassword = "vmonitor-local-tls-identity-v1";
+
+    private static X509Certificate2 LoadOrCreateServerCertificate()
     {
+        var directory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "vmonitor", "tls");
+        var path = Path.Combine(directory, "server-identity.pfx");
+
+        if (File.Exists(path))
+        {
+            try
+            {
+                var existing = new X509Certificate2(
+                    File.ReadAllBytes(path), CertificatePassword,
+                    X509KeyStorageFlags.EphemeralKeySet);
+
+                if (existing.NotAfter.ToUniversalTime() > DateTime.UtcNow.AddDays(30))
+                    return existing;
+
+                existing.Dispose();
+            }
+            catch
+            {
+                // 壊れたファイルや期限切れは下で作り直す。
+            }
+        }
+
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest(
-            "cn=vmonitor-dev",
+            "cn=vmonitor.local",
             rsa,
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1);
 
-        var cert = req.CreateSelfSigned(
-            DateTimeOffset.UtcNow.AddDays(-1),
-            DateTimeOffset.UtcNow.AddYears(1));
+        req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+        req.CertificateExtensions.Add(new X509KeyUsageExtension(
+            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
 
-        return X509Certificate2.CreateFromPem(
-            cert.ExportCertificatePem(),
-            rsa.ExportRSAPrivateKeyPem());
+        using var generated = req.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddYears(10));
+
+        var pfx = generated.Export(X509ContentType.Pfx, CertificatePassword);
+        Directory.CreateDirectory(directory);
+
+        var temporary = path + ".tmp";
+        File.WriteAllBytes(temporary, pfx);
+        File.Move(temporary, path, overwrite: true);
+
+        return new X509Certificate2(
+            pfx, CertificatePassword, X509KeyStorageFlags.EphemeralKeySet);
     }
 }

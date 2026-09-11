@@ -35,9 +35,18 @@ class ConnectProtocol {
   static Uint8List bye() => _encode({'type': _typeBye});
 
   /// 「繋ぎたい」と伝える。
-  static Uint8List request(String initiator) => _encode({
+  static Uint8List request(
+    String initiator, {
+    String? deviceId,
+    String? deviceName,
+    String? platform,
+  }) =>
+      _encode({
         'type': _typeRequest,
         'initiator': initiator,
+        if (deviceId != null) 'deviceId': deviceId,
+        if (deviceName != null) 'name': deviceName,
+        if (platform != null) 'platform': platform,
       });
 
   /// 承認・拒否を返す。

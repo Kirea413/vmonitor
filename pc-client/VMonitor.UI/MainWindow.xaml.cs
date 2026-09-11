@@ -28,13 +28,19 @@ public partial class MainWindow : Window
     /// ここで明示的に結び付けないと何にもバインドされず、
     /// 画面には出るのに操作しても何も起きない状態になる。
     /// </param>
-    public MainWindow(ConnectionViewModel viewModel, ErrorLogViewModel? settingsViewModel = null) : this()
+    public MainWindow(
+        ConnectionViewModel viewModel,
+        ErrorLogViewModel? settingsViewModel = null,
+        TrustedDevicesViewModel? trustedDevicesViewModel = null) : this()
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         DataContext = _viewModel;
 
         if (settingsViewModel is not null)
             SettingsView.DataContext = settingsViewModel;
+
+        if (trustedDevicesViewModel is not null)
+            TrustedDevicesView.DataContext = trustedDevicesViewModel;
     }
 
     /// <inheritdoc/>

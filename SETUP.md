@@ -79,15 +79,15 @@ Mac は要りません。
 | 機能 | Android | iOS |
 |---|:-:|:-:|
 | Wi-Fi 接続 | ✅ | ✅ |
-| USB 直結 (AOA) | ✅ | ❌ 非対応 |
+| USB 直結 | ✅ AOA | ⚠️ `iproxy` 経由（試験対応） |
 | 映像のデコード・表示 | ✅ | ✅ |
 | タッチを PC へ送る | ✅ | ✅ |
 | 画面を消させない / 明るさ固定 | ✅ | ⚠️ 未確認 |
 
 実装上の違いが 3 点あります。
 
-- **USB 直結は iOS では原理的にできません。** Android Open Accessory は
-  Android 専用の仕組みです
+- **USB の経路はOSごとに違います。** Android は AOA、iOS は Apple Mobile
+  Device Support の `usbmuxd` と `iproxy` によるTCP転送を使います
 - **映像の経路が違います。** Android はネイティブのビューへ直接描きますが
   ([renderer_view.dart](mobile-app/lib/renderer/renderer_view.dart) の `_useNativeView`)、
   iOS は Flutter のテクスチャを経由します。この経路は Android で計測したとき
@@ -334,11 +334,10 @@ pnputil /add-driver VMonitorAOA.inf /install
 vmonitor-doctor aoa
 ```
 
-### USB 接続（有線・iOS / ADB を使う場合）
+### Android USB 接続（ADB を使う場合）
 
 1. USB ケーブルで PC とスマートフォンを接続する
    - Android: 開発者オプション → USB デバッグを有効にする
-   - iOS: 「このコンピューターを信頼しますか？」で「信頼」をタップ
 2. PC 側で端末から PC へのトンネルを張る
 
    ```
@@ -348,6 +347,24 @@ vmonitor-doctor aoa
    `forward` ではなく `reverse` です。`forward` は PC から端末への向きで、
    さらに PC 側の 127.0.0.1:7979 を奪ってしまい Wi-Fi 接続まで壊します。
 3. スマホアプリの「ADB 経由で接続」をタップする
+
+### iPhone / iPad の USB 接続（試験対応）
+
+この経路は Android の AOA ではなく、Apple の `usbmuxd` を使って iOS アプリの
+待受ポートへTCP接続を転送します。現時点では実機検証前です。
+
+1. Apple Mobile Device Support をインストールする
+2. iPhone / iPad をUSB接続し、「このコンピューターを信頼」を選ぶ
+3. iOS側でvmonitorを開いたまま、PC側の「iPhone USB」を押す
+
+配布インストーラーには `iproxy` と必要なDLLを同梱しています。ソースからPC
+アプリだけを直接実行する場合は、`iproxy.exe` と依存DLLを `vmonitor.exe` の隣の
+`tools\ios-usb`、`%LOCALAPPDATA%\vmonitor\tools\ios-usb`、または `PATH` 上へ
+置いてください。
+
+接続はPCのループバックアドレスだけで待ち受けるため、USB転送ポートがLANへ
+公開されることはありません。複数のiOS端末を同時に挿した場合、現在は最初に
+見つかった1台が対象です。
 
 ---
 

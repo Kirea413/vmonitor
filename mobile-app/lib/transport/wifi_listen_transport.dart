@@ -27,6 +27,7 @@ class WifiListenTransport implements Transport {
   static const int defaultPort = 7980;
 
   static const int _frameHeaderSize = 5;
+  static const int _maxPayloadSize = 32 * 1024 * 1024;
   static const int _defaultBandwidthBps = 10 * 1000 * 1000;
 
   ServerSocket? _server;
@@ -180,7 +181,9 @@ class WifiListenTransport implements Transport {
     // 購読者がいないので、待つと永久に返ってこない。
     final controller = _receiveController;
     _receiveController = null;
-    if (controller != null && !controller.isClosed) unawaited(controller.close());
+    if (controller != null && !controller.isClosed) {
+      unawaited(controller.close());
+    }
 
     _socket?.destroy();
     _socket = null;
@@ -265,6 +268,14 @@ class WifiListenTransport implements Transport {
   // ─────────────────────────────────────────────
 
   static Uint8List _encodeFrame(Uint8List payload, ChannelId channel) {
+    if (payload.length > _maxPayloadSize) {
+      throw ArgumentError.value(
+        payload.length,
+        'payload.length',
+        '$_maxPayloadSize bytes 以下である必要があります',
+      );
+    }
+
     final frame = Uint8List(_frameHeaderSize + payload.length);
     frame[0] = channel.index;
 
@@ -288,6 +299,11 @@ class WifiListenTransport implements Transport {
           (_receiveBuffer[3] << 8) |
           _receiveBuffer[4];
 
+      if (payloadLength > _maxPayloadSize) {
+        _failProtocol('受信ペイロードが上限を超えています: $payloadLength bytes');
+        return;
+      }
+
       final totalFrameSize = _frameHeaderSize + payloadLength;
       if (_receiveBuffer.length < totalFrameSize) break; // データが足りない
 
@@ -305,6 +321,13 @@ class WifiListenTransport implements Transport {
       _receiveBuffer.removeRange(0, totalFrameSize);
       _receiveController?.add((channel: channelId, data: payload));
     }
+  }
+
+  void _failProtocol(String message) {
+    _receiveBuffer.clear();
+    _receiveController?.addError(FormatException(message));
+    _socket?.destroy();
+    _socket = null;
   }
 
   void _onDone() {

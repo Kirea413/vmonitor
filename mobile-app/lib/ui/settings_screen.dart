@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../transport/transport.dart';
 import '../l10n/app_localizations.dart';
 import 'display_preferences.dart';
+import 'licenses_screen.dart';
 
 /// スマホアプリの設定画面。
 ///
@@ -146,6 +147,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(),
           const SizedBox(height: 16),
           _buildViewportSection(),
+          const SizedBox(height: 32),
+          const Divider(),
+          ListTile(
+            key: const Key('open-licenses-from-settings'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.info_outline),
+            title: Text(L.of(context).licensesTitle),
+            subtitle: Text(L.of(context).licensesSubtitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showVMonitorLicenses(context),
+          ),
         ],
       ),
     );

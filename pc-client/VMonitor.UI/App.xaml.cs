@@ -36,10 +36,13 @@ public partial class App : Application
         var adapter = new IddCxAdapter();
         var vdd = new VirtualDisplayDriver(adapter);
 
-        // 認証マネージャー（許可ダイアログは後でViewModelから提供）
-        AuthManager? authManager = null;
-        authManager = new AuthManager(device =>
-            TrustedDevicesViewModel.ShowAuthorizationDialogAsync(device));
+        // 設定（%APPDATA%\vmonitor\settings.json）
+        var settingsManager = new SettingsManager();
+
+        // 認証マネージャー。変更のたびに信頼済み一覧を設定へ保存する。
+        var authManager = new AuthManager(
+            device => TrustedDevicesViewModel.ShowAuthorizationDialogAsync(device),
+            trusted => settingsManager.SaveTrustedDevicesAsync(trusted));
 
         // セッションマネージャー（Wi-Fi トランスポートは接続ごとに生成するためここでは null）
         // ConnectionServer が接続を受け付けた際に SessionManager を使う
@@ -49,9 +52,8 @@ public partial class App : Application
         var sessionManagerAdapter = new SessionManagerAdapter(vdd, authManager, logger);
         var connectionVm = new ConnectionViewModel(sessionManagerAdapter);
 
-        // 設定（%APPDATA%\vmonitor\settings.json）
-        var settingsManager = new SettingsManager();
         var settingsVm      = new ErrorLogViewModel(settingsManager);
+        var trustedDevicesVm = new TrustedDevicesViewModel(authManager);
 
         // 接続サーバー起動（バックグラウンドで接続待ち）
         _server = new ConnectionServer(connectionVm, vdd, authManager, logger);
@@ -73,7 +75,8 @@ public partial class App : Application
 
         // 保存済みのディスプレイ設定を反映してから待ち受けを始める。
         // 既定は「拡張ディスプレイのみ」なので、読めなかった場合もそれで動く。
-        _ = LoadDisplaySettingsAsync(settingsManager, _server);
+        _ = Task.Run(() => LoadSettingsAndStartServerAsync(
+            settingsManager, authManager, trustedDevicesVm, _server));
 
         // 設定画面で保存したら、次のセッションから効くようにする
         settingsVm.DisplaySettingsChanged += (_, settings) => _server?.UpdateDisplaySettings(settings);
@@ -83,14 +86,6 @@ public partial class App : Application
         // 新版が無いときは黙っている。毎回「最新です」と出ても邪魔なだけ。
         // 未認証の GitHub API は回数に限りがあるので、繰り返し見にいかない。
         _ = settingsVm.Update.CheckAsync(announceNoUpdate: false);
-
-        // 待ち受けは UI スレッドから切り離して始める。
-        //
-        // ここで素の `_ = _server.StartAsync()` にすると、以降の await が
-        // すべて UI スレッドに戻ってくる（WPF の同期コンテキスト）。
-        // USB の列挙も仮想ディスプレイの用意も同期処理なので、そのまま
-        // 画面を止めてしまう。
-        _ = Task.Run(() => _server.StartAsync());
 
         // ファイアウォールルールを自動追加する（管理者権限で実行済みの場合）。
         //
@@ -115,7 +110,7 @@ public partial class App : Application
         // （forward ではなく reverse。必要なのは端末から PC への向き）
 
         // メインウィンドウ
-        var mainWindow = new MainWindow(connectionVm, settingsVm);
+        var mainWindow = new MainWindow(connectionVm, settingsVm, trustedDevicesVm);
 
         // タスクトレイに常駐する。
         //
@@ -237,17 +232,25 @@ public partial class App : Application
     /// 読み込みに失敗しても既定（拡張ディスプレイのみ）で動くので、
     /// 起動そのものは止めない。
     /// </remarks>
-    private static async Task LoadDisplaySettingsAsync(SettingsManager settings, ConnectionServer server)
+    private static async Task LoadSettingsAndStartServerAsync(
+        SettingsManager settings,
+        AuthManager authManager,
+        TrustedDevicesViewModel trustedDevicesVm,
+        ConnectionServer server)
     {
         try
         {
             var loaded = await settings.LoadAsync();
             server.UpdateDisplaySettings(loaded.DisplayDefaults);
+            authManager.LoadTrustedDevices(loaded.TrustedDevices);
+            trustedDevicesVm.Refresh();
         }
         catch
         {
             // 既定のまま進む
         }
+
+        await server.StartAsync();
     }
 
     /// <summary>

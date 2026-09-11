@@ -225,6 +225,105 @@ foreach ($target in $uiDeps.targets.PSObject.Properties) {
 
 Write-Host ("   {0} 個を照合し、食い違いはありませんでした。" -f $checked)
 
+# ── iPhone / iPad の USB 転送 ─────────────────────────────────────────
+#
+# iOS は Android AOA を使えないため、Apple Mobile Device Support の
+# usbmuxd と話す iproxy で、PC のローカルTCPポートを端末へ転送する。
+# バイナリ配布物は版とハッシュを固定し、必要な4ファイルだけを取り出す。
+#
+# iproxy は GPL-2.0、リンク先の3ライブラリは LGPL-2.1。対応する正確な
+# ソースアーカイブも一緒にインストールして、バイナリだけを配らない。
+Write-Step 'iOS USB 転送ツールを用意しています...'
+
+$VendorDir       = Join-Path $InstallerDir 'vendor'
+$IosUsbVendorDir = Join-Path $VendorDir 'ios-usb'
+$IosUsbStageDir  = Join-Path $AppStageDir 'tools\ios-usb'
+$IosUsbSourceDir = Join-Path $IosUsbStageDir 'source'
+$IosUsbZip       = Join-Path $IosUsbVendorDir 'libimobile-suite-v20260906-74585f8-w64.zip'
+$IosUsbUrl       = 'https://github.com/jrjr/libimobiledevice-windows/releases/download/v20260906-74585f8/libimobile-suite-latest_w64.zip'
+$IosUsbZipSha    = '86E7F9970AD5D668C8235697C9F8E02D2E3DD4EB8FE52FEC5CE6AACBC118714B'
+
+New-Item -ItemType Directory -Path $IosUsbVendorDir -Force | Out-Null
+New-Item -ItemType Directory -Path $IosUsbStageDir -Force | Out-Null
+New-Item -ItemType Directory -Path $IosUsbSourceDir -Force | Out-Null
+
+if (-not (Test-Path $IosUsbZip)) {
+    Write-Host '   iproxy のWindowsビルドを取得しています...'
+    Invoke-WebRequest -Uri $IosUsbUrl -OutFile $IosUsbZip -UseBasicParsing
+}
+
+$actualIosUsbZipSha = (Get-FileHash $IosUsbZip -Algorithm SHA256).Hash
+if ($actualIosUsbZipSha -ne $IosUsbZipSha) {
+    Remove-Item -LiteralPath $IosUsbZip -Force
+    throw "iOS USB ツールの中身が想定と違います。`n  期待: $IosUsbZipSha`n  実際: $actualIosUsbZipSha"
+}
+
+$IosUsbExtractDir = Join-Path $InstallerDir 'obj\ios-usb-extract'
+if (Test-Path $IosUsbExtractDir) {
+    # InstallerDir 配下の固定された作業フォルダーだけを削除する。
+    Remove-Item -LiteralPath $IosUsbExtractDir -Recurse -Force
+}
+Expand-Archive -LiteralPath $IosUsbZip -DestinationPath $IosUsbExtractDir
+
+$iosUsbFiles = @{
+    'iproxy.exe'                     = '28DDC8CFC6D1DBC6711B71408AE06C7D624DD59C35FEE1E682B4CEB41407989A'
+    'libusbmuxd-2.0.dll'             = '6A91C7B7873FCB5CC9BD506E9E013E9121A34D8D5C0F590D13D4E9322B386425'
+    'libimobiledevice-glue-1.0.dll'  = 'EFD6E7EE7A76EA5277584F4701720156B788FFEAAE78E3221C5AEA7CF3AE6CF1'
+    'libplist-2.0.dll'               = '0D573BEB60856F5E58754F24B90C2B685FE40DED31093C7C755909616C8B8512'
+}
+
+foreach ($entry in $iosUsbFiles.GetEnumerator()) {
+    $source = Join-Path $IosUsbExtractDir $entry.Key
+    if (-not (Test-Path $source)) { throw "iOS USB ツールが足りません: $($entry.Key)" }
+
+    $fileHash = (Get-FileHash $source -Algorithm SHA256).Hash
+    if ($fileHash -ne $entry.Value) {
+        throw "$($entry.Key) の中身が想定と違います。期待 $($entry.Value) / 実際 $fileHash"
+    }
+
+    Copy-Item -LiteralPath $source -Destination $IosUsbStageDir -Force
+}
+
+$iosUsbSources = @(
+    @{
+        Name = 'libusbmuxd'; Commit = '93eb168';
+        Sha256 = '810E26DD849083E192176150519D372E800BD3EDBA341DF75E2A6FEF6DCEC364'
+    },
+    @{
+        Name = 'libimobiledevice-glue'; Commit = 'da770a7';
+        Sha256 = 'C3E36A0F99D419E2DFD1B7E8C43813342E2BF597EC22C60DF290635EEF6A56C6'
+    },
+    @{
+        Name = 'libplist'; Commit = '32428ab';
+        Sha256 = '6F7ADE2A3299662BC148836A105872A51039AA4CF9430EB4D96A23395EA1E214'
+    }
+)
+
+foreach ($sourceInfo in $iosUsbSources) {
+    $archiveName = "$($sourceInfo.Name)-$($sourceInfo.Commit).tar.gz"
+    $archive = Join-Path $IosUsbVendorDir $archiveName
+    $url = "https://codeload.github.com/libimobiledevice/$($sourceInfo.Name)/tar.gz/$($sourceInfo.Commit)"
+
+    if (-not (Test-Path $archive)) {
+        Write-Host "   対応ソースを取得しています: $archiveName"
+        Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+    }
+
+    $sourceHash = (Get-FileHash $archive -Algorithm SHA256).Hash
+    if ($sourceHash -ne $sourceInfo.Sha256) {
+        Remove-Item -LiteralPath $archive -Force
+        throw "$archiveName の中身が想定と違います。期待 $($sourceInfo.Sha256) / 実際 $sourceHash"
+    }
+
+    Copy-Item -LiteralPath $archive -Destination $IosUsbSourceDir -Force
+}
+
+Copy-Item -LiteralPath (Join-Path $RootDir 'docs\ios-usb-third-party.md') `
+    -Destination (Join-Path $IosUsbStageDir 'README.md') -Force
+
+Write-Host ("   iproxy と依存DLL {0} 本、対応ソース {1} 件を収録しました。" -f `
+    ($iosUsbFiles.Count - 1), $iosUsbSources.Count)
+
 # ── 5. ドライバを payload へ ────────────────────────────────────────────
 Write-Step 'payload にまとめています...'
 
@@ -303,6 +402,13 @@ if ($LASTEXITCODE -ne 0) { throw "Inno Setup のコンパイルに失敗しま�
 $output = Get-ChildItem (Join-Path $InstallerDir 'output') -Filter '*.exe' |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
+# 自動更新はこのサイドカーと照合してからインストーラーを起動する。
+# setup.exe と必ず一緒に GitHub Release へ添付すること。
+$outputHash = (Get-FileHash $output.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+$checksumPath = "$($output.FullName).sha256"
+Set-Content -LiteralPath $checksumPath -Value "$outputHash  $($output.Name)" -Encoding ascii
+
 Write-Host ''
 Write-Host '完了しました。' -ForegroundColor Green
 Write-Host ("  {0}  ({1:N1} MB)" -f $output.FullName, ($output.Length / 1MB))
+Write-Host ("  {0}" -f $checksumPath)

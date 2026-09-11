@@ -151,7 +151,7 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /// <summary>AuthManager から信頼済みデバイスを再読み込みして一覧を更新する。</summary>
-    private void Refresh()
+    public void Refresh()
     {
         var devices = _authManager.GetTrustedDevices();
 

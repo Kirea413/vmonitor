@@ -7,6 +7,7 @@
 bin/
 obj/
 *.user
+pc-client/VMonitor.Tests/TestResults/
 
 # ネイティブ（エンコーダー・ドライバ）
 pc-client/bin/
@@ -29,6 +30,7 @@ mobile-app/ios/Flutter/flutter_export_environment.sh
 mobile-app/ios/Flutter/ephemeral/
 *.apk
 *.aab
+*.ipa
 
 # インストーラー
 #
@@ -46,7 +48,7 @@ installer/pc-client/
 # ソースではない。置くと、古い署名済みバイナリが履歴に残り続け、
 # どれが正なのか分からなくなる。
 pc-client/VMonitor.Installer/driver/
-test/
+/test/
 
 # ── 鍵と証明書 ─────────────────────────────────────────────────────────
 #

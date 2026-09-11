@@ -48,8 +48,8 @@ SolidCompression=yes
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=
 
-; Windows 10 以降を要求する
-MinVersion=10.0.19041
+; README / SETUP.md と同じく Windows 10 1809 (build 17763) 以降を要求する
+MinVersion=10.0.17763
 
 ; アーキテクチャ
 ArchitecturesAllowed=x64compatible
@@ -102,8 +102,8 @@ Source: "{#DriverSrcDir}\vmonitoraoa.cat";  DestDir: "{app}\driver"; Flags: igno
 ; 手元に無い PC で起きている問題を切り分けるのに要る。
 Source: "..\driver\diagnose-usb.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
-; 同梱している第三者のソフトウェアの表記
-Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+; THIRD-PARTY-NOTICES.md はアプリの publish 出力に含まれるため、
+; 上の AppSrcDir のコピーで一緒にインストールされる。
 
 ; ── UsbDk ───────────────────────────────────────────────────────
 ; USB 直結を選んだときだけ展開する。選ばなければ置いていかない。

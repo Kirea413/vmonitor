@@ -8,12 +8,14 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../transport/aoa_transport.dart';
 import '../transport/connect_protocol.dart';
+import '../transport/device_identity.dart';
 import '../transport/relay_transport.dart';
 import '../transport/transport.dart';
 import '../transport/usb_transport.dart';
 import '../transport/wifi_listen_transport.dart';
 import '../transport/wifi_transport.dart';
 import 'screen_awake.dart';
+import 'licenses_screen.dart';
 
 /// デバイス探索・接続画面
 ///
@@ -198,14 +200,14 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// アプリを開いたあとに Wi-Fi へ繋いだ場合、起動時に読んだ一覧は空のまま。
   /// 表示が空だと「対応していない」と受け取られてしまう。
   Future<void> _refreshLocalAddresses() async {
-    if (_listeningPort == null) return;   // 待ち受けていないなら出す必要がない
+    if (_listeningPort == null) return; // 待ち受けていないなら出す必要がない
 
     final addresses = await WifiListenTransport.localAddresses();
 
     if (!mounted) return;
     if (addresses.length == _localAddresses.length &&
         addresses.every(_localAddresses.contains)) {
-      return;   // 変わっていないなら描き直さない
+      return; // 変わっていないなら描き直さない
     }
 
     setState(() => _localAddresses = addresses);
@@ -289,8 +291,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     }
 
     final last = _lastPcMessage;
-    final alive = last != null &&
-        DateTime.now().difference(last) < _pcSilenceLimit;
+    final alive =
+        last != null && DateTime.now().difference(last) < _pcSilenceLimit;
 
     if (alive == _pcAlive) return;
     if (!mounted) return;
@@ -371,7 +373,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
   /// USB の通信路を開き、PC からの要求を聞けるようにする。
   Future<void> _openUsbLink() async {
-    if (_controlLink != null) return;   // 既に開いている
+    if (_controlLink != null) return; // 既に開いている
 
     final link = AoaTransport();
 
@@ -437,19 +439,33 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   Future<void> _announceSelf(Transport link) async {
     try {
       // AOA が無い環境（iOS）では画面まわりの口から取る
-      final name = await AoaTransport.deviceName() ?? await ScreenAwake.deviceName();
-      if (name == null || name.isEmpty) return;
+      final name =
+          await AoaTransport.deviceName() ?? await ScreenAwake.deviceName();
+      final deviceId = await DeviceIdentity.loadOrCreate();
 
       await link.send(
         Uint8List.fromList(utf8.encode(jsonEncode({
           'type': 'hello',
-          'name': name,
+          'deviceId': deviceId,
+          if (name != null && name.isNotEmpty) 'name': name,
+          'platform': Platform.operatingSystem,
         }))),
         ChannelId.control,
       );
     } catch (_) {
       // 名乗れなくても接続そのものには関係ない
     }
+  }
+
+  Future<Uint8List> _buildConnectRequest() async {
+    final name =
+        await AoaTransport.deviceName() ?? await ScreenAwake.deviceName();
+    return ConnectProtocol.request(
+      ConnectProtocol.initiatorPhone,
+      deviceId: await DeviceIdentity.loadOrCreate(),
+      deviceName: name == null || name.isEmpty ? null : name,
+      platform: Platform.operatingSystem,
+    );
   }
 
   void _onControlLinkClosed() {
@@ -511,7 +527,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// PC からの接続要求を利用者に見せて、返事を PC へ返す。
   Future<void> _askUserToApprove() async {
     if (!mounted) return;
-    if (_approvalDialogOpen) return;       // 二重に出さない
+    if (_approvalDialogOpen) return; // 二重に出さない
     if (_screenState != _ScreenState.idle) return;
 
     _approvalDialogOpen = true;
@@ -607,7 +623,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     final attached = await AoaTransport.isAttached();
 
     if (!mounted) return;
-    if (attached == _usbAttached) return;   // 変わっていないなら描き直さない
+    if (attached == _usbAttached) return; // 変わっていないなら描き直さない
 
     setState(() => _usbAttached = attached);
   }
@@ -670,7 +686,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
     try {
       await link.send(
-        ConnectProtocol.request(ConnectProtocol.initiatorPhone),
+        await _buildConnectRequest(),
         ChannelId.control,
       );
     } catch (_) {
@@ -772,7 +788,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     final transport = _transportFactory();
 
     try {
-      await transport.connect(device.ipAddress, device.port)
+      await transport
+          .connect(device.ipAddress, device.port)
           .timeout(_connectionTimeout);
     } catch (_) {
       await transport.disconnect();
@@ -798,7 +815,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
     try {
       await link.send(
-        ConnectProtocol.request(ConnectProtocol.initiatorPhone),
+        await _buildConnectRequest(),
         ChannelId.control,
       );
     } catch (_) {
@@ -859,7 +876,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     _doConnect(device, connected: connected);
   }
 
-  Future<void> _doConnect(MdnsServiceRecord device, {Transport? connected}) async {
+  Future<void> _doConnect(MdnsServiceRecord device,
+      {Transport? connected}) async {
     try {
       final transport = connected ?? _transportFactory();
 
@@ -926,6 +944,12 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       appBar: AppBar(
         title: Text(t.homeTitle),
         actions: [
+          IconButton(
+            key: const Key('open-licenses'),
+            icon: const Icon(Icons.info_outline),
+            tooltip: t.licensesTitle,
+            onPressed: () => showVMonitorLicenses(context),
+          ),
           if (_screenState == _ScreenState.idle)
             IconButton(
               icon: const Icon(Icons.wifi_find),
@@ -957,8 +981,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// 分からなかった。USB が挿さっていればそれがいちばん速く確実なので、
   /// 挿さっているときは手前に出す。挿さっていなければ Wi-Fi を手前に出す。
   Widget _buildIdleView() {
-    // USB 直結は Android Open Accessory の仕組みで、iOS には無い。
-    // 出しても押せないだけの欄になり、「壊れている」と受け取られる。
+    // Android のUSBカードは AOA 専用。iOS は常設の待受へPC側から
+    // usbmuxd/iproxy経由で接続するので、「PCから接続」カードを使う。
     final sections = <Widget>[
       if (!_supportsUsb) ...[
         _buildListeningCard(),
@@ -1010,7 +1034,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: badgeIsGood ? Colors.green.shade800 : Colors.grey.shade700,
+                color:
+                    badgeIsGood ? Colors.green.shade800 : Colors.grey.shade700,
               ),
             ),
           ),
@@ -1228,7 +1253,6 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
           badge: port != null ? t.usbWaiting : null,
         ),
         const SizedBox(height: 4),
-
         if (error != null)
           Text(error, style: const TextStyle(color: Colors.red, fontSize: 12))
         else if (port == null)
@@ -1242,11 +1266,13 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             style: TextStyle(color: Colors.grey, fontSize: 12),
           ),
           const SizedBox(height: 10),
-
           if (_localAddresses.isEmpty)
             Text(
-              t.listenNotConnected,
-              style: TextStyle(color: Colors.orange, fontSize: 12),
+              Platform.isIOS ? t.iosUsbListenHint : t.listenNotConnected,
+              style: TextStyle(
+                color: Platform.isIOS ? Colors.grey : Colors.orange,
+                fontSize: 12,
+              ),
             )
           else
             // アドレスは手で PC に打ち込むもの。読み間違えないよう、
@@ -1255,7 +1281,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
               (address) => Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
@@ -1271,10 +1298,9 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
                 ),
               ),
             ),
-
           const SizedBox(height: 4),
           Text(
-            t.wifiSubtitle,
+            Platform.isIOS ? t.iosUsbListenHint : t.wifiSubtitle,
             style: TextStyle(color: Colors.grey, fontSize: 11),
           ),
         ],

@@ -36,6 +36,10 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
             execute:    _ => _server.DisconnectFromDevice(),
             canExecute: _ => _server.IsOutboundConnected || _server.IsOutboundBusy);
 
+        IosUsbConnectCommand = new RelayCommand(
+            execute: _ => ConnectIosUsb(),
+            canExecute: _ => !_server.IsOutboundConnected && !_server.IsOutboundBusy);
+
         // 状態はワーカースレッドから変わるので、UI スレッドへ移してから通知する
         _server.OutboundStateChanged += (_, _) =>
         {
@@ -84,6 +88,12 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
     /// <summary>繋がっているセッションを切る。</summary>
     public ICommand DisconnectCommand { get; }
 
+    /// <summary>usbmuxd 経由で USB 接続中の iPhone / iPad へ繋ぐ。</summary>
+    public ICommand IosUsbConnectCommand { get; }
+
+    /// <summary>iproxy が現在の環境で見つかるか。</summary>
+    public bool IsIosUsbAvailable => IosUsbTunnel.IsAvailable;
+
     private void Connect()
     {
         if (!int.TryParse(Port, out int port) || port <= 0 || port > 65535)
@@ -99,6 +109,12 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
         var host = Host;
         _ = Task.Run(() => _server.ConnectToDeviceAsync(host, port));
 
+        RaiseCanExecute();
+    }
+
+    private void ConnectIosUsb()
+    {
+        _ = Task.Run(() => _server.ConnectToIosUsbAsync());
         RaiseCanExecute();
     }
 
@@ -157,6 +173,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
     {
         ((RelayCommand)ConnectCommand).RaiseCanExecuteChanged();
         ((RelayCommand)DisconnectCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)IosUsbConnectCommand).RaiseCanExecuteChanged();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
