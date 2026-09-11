@@ -982,7 +982,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// 挿さっているときは手前に出す。挿さっていなければ Wi-Fi を手前に出す。
   Widget _buildIdleView() {
     // Android のUSBカードは AOA 専用。iOS は常設の待受へPC側から
-    // usbmuxd/iproxy経由で接続するので、「PCから接続」カードを使う。
+    // usbmuxd/iproxy経由で制御路を張り、このカードのボタンから
+    // 接続要求を送り返す。
     final sections = <Widget>[
       if (!_supportsUsb) ...[
         _buildListeningCard(),
@@ -1303,6 +1304,19 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             Platform.isIOS ? t.iosUsbListenHint : t.wifiSubtitle,
             style: TextStyle(color: Colors.grey, fontSize: 11),
           ),
+          if (Platform.isIOS) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              key: const Key('ios-usb-connect'),
+              icon: const Icon(Icons.usb),
+              label: Text(t.usbConnect),
+              onPressed:
+                  (_controlLink != null && _pcAlive) ? _connectUsbDirect : null,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(44),
+              ),
+            ),
+          ],
         ],
       ],
     );

@@ -10,7 +10,8 @@ namespace VMonitor.UI;
 /// </summary>
 /// <remarks>
 /// iproxy は Apple Mobile Device Support が提供する usbmuxd と通信する。
-/// vmonitor は iproxy 自体を同梱せず、アプリの隣または PATH にあるものを使う。
+/// 配布版は iproxy を tools/ios-usb に同梱する。開発環境ではアプリの隣や
+/// PATH にあるものも利用できる。
 /// </remarks>
 public sealed class IosUsbTunnel : IAsyncDisposable
 {

@@ -172,6 +172,7 @@ public sealed class ConnectionServer
         // 2 秒ごとの USB 列挙も接続処理もすべて UI スレッドで動く。
         // 実測で、列挙だけで毎回 46〜608 ms、接続を試すと 13 秒、画面が固まっていた。
         _ = Task.Run(() => StartUsbWatcherAsync(ct), ct);
+        _ = Task.Run(() => StartIosUsbWatcherAsync(ct), ct);
 
         try
         {
@@ -382,6 +383,7 @@ public sealed class ConnectionServer
 
         // 後始末は受信のタイムアウト待ちを含むので、少し余裕をみる
         _usbWatcherStopped.Wait(TimeSpan.FromSeconds(6));
+        _iosUsbWatcherStopped.Wait(TimeSpan.FromSeconds(6));
     }
 
     // ── PC から端末へ Wi-Fi で繋ぐ ───────────────────────────────────────
@@ -433,7 +435,15 @@ public sealed class ConnectionServer
     /// usbmuxd のポート転送を通して、USB 接続中の iPhone / iPad へ接続する。
     /// </summary>
     public async Task ConnectToIosUsbAsync(string? udid = null)
-        => await ConnectOutboundAsync(IPAddress.Loopback.ToString(), DevicePort, iosUsb: true, udid);
+    {
+        // iOS のUSB経路は、端末側からPCへ直接ダイヤルできない。
+        // 待機中の iproxy セッションをいったん張り直し、次の接続で
+        // PC発信としてスマホ側へ承認要求を送る。
+        Interlocked.Exchange(ref _iosPcConnectRequested, 1);
+        try { _iosUsbSessionCts?.Cancel(); } catch { }
+        _iosUsbRetryNow.Set();
+        await Task.CompletedTask;
+    }
 
     private async Task ConnectOutboundAsync(string host, int port, bool iosUsb, string? udid = null)
     {
@@ -559,10 +569,108 @@ public sealed class ConnectionServer
         }
     }
 
+    // ── iPhone / iPad USB 待機 ───────────────────────────────────────
+
+    private readonly ManualResetEventSlim _iosUsbWatcherStopped = new(initialState: true);
+    private readonly ManualResetEventSlim _iosUsbRetryNow = new(initialState: false);
+    private CancellationTokenSource? _iosUsbSessionCts;
+    private int _iosPcConnectRequested;
+
+    /// <summary>
+    /// iproxy で端末の7980番へ常時接続し、iPhone側の「接続」を待つ。
+    /// </summary>
+    private async Task StartIosUsbWatcherAsync(CancellationToken ct)
+    {
+        _iosUsbWatcherStopped.Reset();
+
+        try
+        {
+            await Task.Delay(1500, ct);
+
+            while (!ct.IsCancellationRequested)
+            {
+                IosUsbTunnel? tunnel = null;
+                WifiTransport? transport = null;
+
+                try
+                {
+                    // Android USBや手動Wi-Fi接続の操作中には割り込まない。
+                    if (IsUsbConnected || IsOutboundConnected || IsOutboundBusy)
+                    {
+                        await Task.Delay(1000, ct);
+                        continue;
+                    }
+
+                    tunnel = new IosUsbTunnel();
+                    int localPort = await tunnel.StartAsync(null, ct);
+
+                    transport = new WifiTransport();
+                    using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    connectCts.CancelAfter(TimeSpan.FromSeconds(5));
+                    await transport.ConnectPlainAsync(
+                        new IPEndPoint(IPAddress.Loopback, localPort), connectCts.Token);
+
+                    bool pcInitiated = Interlocked.Exchange(ref _iosPcConnectRequested, 0) == 1;
+                    using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    _iosUsbSessionCts = sessionCts;
+
+                    var device = new DeviceInfo(
+                        Id: DeviceIdentifier.FromKey("vmonitor:ios-usb:default"),
+                        Name: "iPhone / iPad（USB）",
+                        Platform: DevicePlatform.iOS,
+                        PhysicalResolution: new Resolution(1080, 1920),
+                        PixelDensity: 420f);
+
+                    SetOutboundState(
+                        pcInitiated
+                            ? "iPhone（USB）の承認を待っています…"
+                            : "iPhone USB 接続待ち — iPhoneで「接続」を押してください",
+                        connected: false,
+                        busy: false);
+
+                    await RunSessionAsync(
+                        transport, device, "iPhone（USB）",
+                        VMonitor.Core.Models.TransportType.USB,
+                        sessionCts.Token,
+                        pcInitiated: pcInitiated,
+                        reportAsOutbound: true);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    // 端末未接続は通常状態。次の巡回で再試行する。
+                    _logger.Info("ConnectionServer", $"iOS USB not ready: {FirstLine(ex.Message)}");
+                }
+                finally
+                {
+                    _iosUsbSessionCts = null;
+                    if (transport is not null) await transport.DisposeAsync();
+                    if (tunnel is not null) await tunnel.DisposeAsync();
+                }
+
+                try
+                {
+                    await Task.Run(() => _iosUsbRetryNow.Wait(2000, ct), ct);
+                    _iosUsbRetryNow.Reset();
+                }
+                catch (OperationCanceledException) { break; }
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _iosUsbWatcherStopped.Set();
+        }
+    }
+
     /// <summary>PC 発信のセッションを切る。</summary>
     public void DisconnectFromDevice()
     {
         try { _outboundCts?.Cancel(); } catch { }
+        try { _iosUsbSessionCts?.Cancel(); } catch { }
     }
 
     // ── USB 直結 (AOA) ───────────────────────────────────────────────────
@@ -1815,7 +1923,8 @@ public sealed class ConnectionServer
         string                                label,
         VMonitor.Core.Models.TransportType    transportType,
         CancellationToken                     ct,
-        bool                                  pcInitiated = false)
+        bool                                  pcInitiated = false,
+        bool                                  reportAsOutbound = false)
     {
         var outcome = SessionOutcome.Completed;
 
@@ -1840,7 +1949,7 @@ public sealed class ConnectionServer
             Cancellation = sessionCts,
             ReportTransportState =
                 transportType == VMonitor.Core.Models.TransportType.USB || pcInitiated,
-            ReportAsOutbound = pcInitiated,
+            ReportAsOutbound = pcInitiated || reportAsOutbound,
         };
         _activeSessions[runtime.Id] = runtime;
 

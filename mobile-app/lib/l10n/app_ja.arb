@@ -19,7 +19,7 @@
   "listenPreparing": "待ち受けを準備しています…",
   "listenNoWifi": "Wi-Fi に接続すると、この端末のアドレスがここに出ます。",
   "listenNotConnected": "Wi-Fi に繋がっていないようです。",
-  "iosUsbListenHint": "USBの場合は、PC側で「iPhone USB」を押してください。",
+  "iosUsbListenHint": "USB接続を検出すると下のボタンが有効になります。PC側に確認が表示されます。",
   "licensesTitle": "オープンソース ライセンス",
   "licensesSubtitle": "利用しているソフトウェアとライセンスを表示します。",
   "licensesThanks": "vmonitorはオープンソースソフトウェアを利用しています。各プロジェクトの皆様に感謝します。",
