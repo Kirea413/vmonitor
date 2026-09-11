@@ -723,6 +723,39 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     _startSessionOnControlLink();
   }
 
+  /// iOSではPC側のiproxyが先にこの端末へ接続してくる。
+  ///
+  /// 経路が張られる直前だけボタンを無効にすると、利用者は再試行すら
+  /// できない。押されたら少し待ち、PCからの制御路が届いた時点で
+  /// 通常の承認フローへ進む。
+  bool _waitingForIosUsb = false;
+
+  Future<void> _connectIosUsbWhenReady() async {
+    if (_screenState != _ScreenState.idle || _waitingForIosUsb) return;
+
+    // _screenState は idle のままにする。incoming の受け入れ側は、
+    // idle 以外だと「別経路で接続中」と判断してUSB接続を閉じるため。
+    setState(() => _waitingForIosUsb = true);
+
+    final deadline = DateTime.now().add(_connectionTimeout);
+
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      if (_controlLink != null) {
+        setState(() => _waitingForIosUsb = false);
+        await _connectUsbDirect();
+        return;
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _waitingForIosUsb = false;
+      _screenState = _ScreenState.timedOut;
+    });
+  }
+
   /// 相手の承認を待つ上限。
   static const Duration _approvalTimeout = Duration(seconds: 60);
 
@@ -1309,9 +1342,9 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             FilledButton.icon(
               key: const Key('ios-usb-connect'),
               icon: const Icon(Icons.usb),
-              label: Text(t.usbConnect),
-              onPressed:
-                  (_controlLink != null && _pcAlive) ? _connectUsbDirect : null,
+              label:
+                  Text(_waitingForIosUsb ? t.connecting('USB') : t.usbConnect),
+              onPressed: _waitingForIosUsb ? null : _connectIosUsbWhenReady,
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(44),
               ),
