@@ -610,7 +610,14 @@ public sealed class ConnectionServer
                     await transport.ConnectPlainAsync(
                         new IPEndPoint(IPAddress.Loopback, localPort), connectCts.Token);
 
-                    bool pcInitiated = Interlocked.Exchange(ref _iosPcConnectRequested, 0) == 1;
+                    // iOS の待受ソケットを「ボタンが押されるまで無通信で保持」すると、
+                    // usbmuxd が経路を張り直す瞬間と端末の押下が競合し、端末側の
+                    // connect_request が届かないまま切れることがある。
+                    // USB 経路が成立した時点で PC から確認要求を送り、端末側で
+                    // 許可してもらう。これなら制御メッセージが往復できる経路だけを
+                    // 接続候補として扱える。
+                    Interlocked.Exchange(ref _iosPcConnectRequested, 0);
+                    bool pcInitiated = true;
                     using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                     _iosUsbSessionCts = sessionCts;
 
@@ -622,9 +629,7 @@ public sealed class ConnectionServer
                         PixelDensity: 420f);
 
                     SetOutboundState(
-                        pcInitiated
-                            ? "iPhone（USB）の承認を待っています…"
-                            : "iPhone USB 接続待ち — iPhoneで「接続」を押してください",
+                        "iPhone（USB）の承認を待っています…",
                         connected: false,
                         busy: false);
 
