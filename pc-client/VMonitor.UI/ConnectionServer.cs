@@ -610,12 +610,17 @@ public sealed class ConnectionServer
                     await transport.ConnectPlainAsync(
                         new IPEndPoint(IPAddress.Loopback, localPort), connectCts.Token);
 
-                    // iOS の待受ソケットを「ボタンが押されるまで無通信で保持」すると、
-                    // usbmuxd が経路を張り直す瞬間と端末の押下が競合し、端末側の
-                    // connect_request が届かないまま切れることがある。
-                    // USB 経路が成立した時点で PC から確認要求を送り、端末側で
-                    // 許可してもらう。これなら制御メッセージが往復できる経路だけを
-                    // 接続候補として扱える。
+                    // TcpClient の接続完了は「PC → iproxy のローカルソケット」が
+                    // 開いたことしか保証しない。iproxy が usbmuxd を通して端末の
+                    // 7980 番へ繋ぎ終わる前に最初のフレームを書くと、接続が
+                    // WSAECONNABORTED で閉じられる。実機では usbmuxd の
+                    // "Connect success" が少し遅れて返るため、端末側経路が
+                    // 落ち着いてから制御メッセージを送る。
+                    await Task.Delay(1000, connectCts.Token);
+
+                    // iOS USB はPCから接続要求を先に届ける。iPhone側では
+                    // 自動承認せず、「USB接続」ボタンが押された時点で accepted を
+                    // 返すため、利用者が押すまで映像は開始しない。
                     Interlocked.Exchange(ref _iosPcConnectRequested, 0);
                     bool pcInitiated = true;
                     using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -629,7 +634,9 @@ public sealed class ConnectionServer
                         PixelDensity: 420f);
 
                     SetOutboundState(
-                        "iPhone（USB）の承認を待っています…",
+                        pcInitiated
+                            ? "iPhone（USB）の承認を待っています…"
+                            : "iPhone USB 接続待ち — iPhoneで「接続」を押してください",
                         connected: false,
                         busy: false);
 
@@ -1274,7 +1281,7 @@ public sealed class ConnectionServer
     // ── 接続の申し込みと承認 ─────────────────────────────────────────────
 
     /// <summary>相手の承認を待つ上限。</summary>
-    private static readonly TimeSpan ApprovalTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan ApprovalTimeout = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// 接続してよいかを、押した側の反対で確かめる。

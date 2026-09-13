@@ -274,6 +274,12 @@ public sealed class WifiTransport : ITransport, IAsyncDisposable
 
         _plainStream = _tcpClient.GetStream();
         _sendStartTickMs = Environment.TickCount64;
+
+        // SessionManager.EstablishSessionAsync は抽象化されたトランスポートに
+        // ConnectAsync を呼ぶ。ここで既に iproxy へ接続済みであることを
+        // 記録しないと、プレースホルダーの 127.0.0.1:0 へ再接続しようとして
+        // WSAEADDRNOTAVAIL になり、承認直後にセッションが切断される。
+        _acceptedByServer = true;
     }
 
     /// <summary>

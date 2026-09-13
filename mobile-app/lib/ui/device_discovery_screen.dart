@@ -371,6 +371,9 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// 承認のダイアログを二重に出さないための札。
   bool _approvalDialogOpen = false;
 
+  /// iOS USB でPCから届いた接続要求を、利用者がUSB接続ボタンを押すまで保留する。
+  bool _iosUsbRequestPending = false;
+
   /// USB の通信路を開き、PC からの要求を聞けるようにする。
   Future<void> _openUsbLink() async {
     if (_controlLink != null) return; // 既に開いている
@@ -475,6 +478,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     _controlSub = null;
     _controlLink = null;
     _controlPeer = null;
+    _iosUsbRequestPending = false;
 
     // 待っている人がいれば起こす
     final pending = _pendingApproval;
@@ -492,6 +496,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     final link = _controlLink;
     _controlLink = null;
     _controlPeer = null;
+    _iosUsbRequestPending = false;
 
     await _controlSub?.cancel();
     _controlSub = null;
@@ -510,6 +515,13 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
     // PC 側で「接続」が押された。この端末で承認を取る。
     if (message.isRequest && message.fromPc) {
+      if (Platform.isIOS) {
+        // iOS USB は、PCから要求を先に届けておき、ホーム画面の
+        // 「USB接続」が押された時点で承認する。自動では接続しない。
+        _iosUsbRequestPending = true;
+        if (mounted) setState(() {});
+        return;
+      }
       _askUserToApprove();
       return;
     }
@@ -736,7 +748,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     // 前回のタイムアウト時、PC から届いたソケットを閉じた直後だと
     // listener がまだ再生成されていないことがある。待受が無いまま
     // 10 秒待っても iproxy の接続先が存在せず、必ずタイムアウトする。
-    await _startListening();
+    if (_controlLink == null) await _startListening();
     if (!mounted) return;
 
     // _screenState は idle のままにする。incoming の受け入れ側は、
@@ -746,9 +758,25 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     final deadline = DateTime.now().add(_connectionTimeout);
 
     while (mounted && DateTime.now().isBefore(deadline)) {
-      if (_controlLink != null) {
+      if (_controlLink != null && _iosUsbRequestPending) {
         setState(() => _waitingForIosUsb = false);
-        await _connectUsbDirect();
+
+        final link = _controlLink!;
+        _iosUsbRequestPending = false;
+
+        try {
+          await link.send(
+            ConnectProtocol.response(accepted: true),
+            ChannelId.control,
+          );
+        } catch (_) {
+          if (!mounted) return;
+          setState(() => _screenState = _ScreenState.timedOut);
+          return;
+        }
+
+        if (!mounted) return;
+        _startSessionOnControlLink();
         return;
       }
 
@@ -1348,19 +1376,20 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
             Platform.isIOS ? t.iosUsbListenHint : t.wifiSubtitle,
             style: TextStyle(color: Colors.grey, fontSize: 11),
           ),
-          if (Platform.isIOS) ...[
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              key: const Key('ios-usb-connect'),
-              icon: const Icon(Icons.usb),
-              label:
-                  Text(_waitingForIosUsb ? t.connecting('USB') : t.usbConnect),
-              onPressed: _waitingForIosUsb ? null : _connectIosUsbWhenReady,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(44),
-              ),
+        ],
+        // PC の iproxy が先に制御路を確立すると listeningPort は null に
+        // なる。その状態でも、利用者が接続を開始するこのボタンは常に残す。
+        if (Platform.isIOS) ...[
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            key: const Key('ios-usb-connect'),
+            icon: const Icon(Icons.usb),
+            label: Text(_waitingForIosUsb ? t.connecting('USB') : t.usbConnect),
+            onPressed: _waitingForIosUsb ? null : _connectIosUsbWhenReady,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
             ),
-          ],
+          ),
         ],
       ],
     );
