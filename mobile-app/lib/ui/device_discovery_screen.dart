@@ -755,7 +755,10 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     // idle 以外だと「別経路で接続中」と判断してUSB接続を閉じるため。
     setState(() => _waitingForIosUsb = true);
 
-    final deadline = DateTime.now().add(_connectionTimeout);
+    // PC 側は、端末の待受が始まる前に失敗したトンネルを片付けてから
+    // 再試行する。10秒では実機・Windowsの後始末中に間に合わないことが
+    // あるので、USBボタンだけは十分な時間、次の巡回を待つ。
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
 
     while (mounted && DateTime.now().isBefore(deadline)) {
       if (_controlLink != null && _iosUsbRequestPending) {

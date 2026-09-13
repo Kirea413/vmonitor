@@ -660,6 +660,16 @@ public sealed class ConnectionServer
                 {
                     _iosUsbSessionCts = null;
 
+                    // 接続要求の送信前に端末側の待受がまだ始まっていない場合、
+                    // RunSessionAsync は Denied で戻る。その際に busy=true を
+                    // 残すと、次の while が上のガードに入り続けて iproxy を
+                    // 二度と張り直さない。iPhone のボタンはこの再試行を待って
+                    // いるため、セッション終了ごとに必ず監視可能な状態へ戻す。
+                    SetOutboundState(
+                        "iPhone USB 接続待ち — iPhoneで「USB接続」を押してください",
+                        connected: false,
+                        busy: false);
+
                     // 相手からソケットを強制切断された直後は、transport の
                     // DisposeAsync 自体が例外になることがある。後始末の例外を
                     // 監視ループの外まで漏らすと、以後 iproxy が二度と起動せず、
