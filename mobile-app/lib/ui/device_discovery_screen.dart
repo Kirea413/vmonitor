@@ -733,6 +733,12 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   Future<void> _connectIosUsbWhenReady() async {
     if (_screenState != _ScreenState.idle || _waitingForIosUsb) return;
 
+    // 前回のタイムアウト時、PC から届いたソケットを閉じた直後だと
+    // listener がまだ再生成されていないことがある。待受が無いまま
+    // 10 秒待っても iproxy の接続先が存在せず、必ずタイムアウトする。
+    await _startListening();
+    if (!mounted) return;
+
     // _screenState は idle のままにする。incoming の受け入れ側は、
     // idle 以外だと「別経路で接続中」と判断してUSB接続を閉じるため。
     setState(() => _waitingForIosUsb = true);
@@ -966,6 +972,11 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       setState(() {
         _screenState = _ScreenState.idle;
       });
+
+      // iOS USB ではタイムアウト直前に相手の接続が閉じると、待受も
+      // 手放した状態になる。「再試行」で待受を作り直さない限り、PC の
+      // iproxy は接続できず、以後の試行がすべてタイムアウトする。
+      unawaited(_startListening());
     }
   }
 
