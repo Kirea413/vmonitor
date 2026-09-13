@@ -647,8 +647,31 @@ public sealed class ConnectionServer
                 finally
                 {
                     _iosUsbSessionCts = null;
-                    if (transport is not null) await transport.DisposeAsync();
-                    if (tunnel is not null) await tunnel.DisposeAsync();
+
+                    // 相手からソケットを強制切断された直後は、transport の
+                    // DisposeAsync 自体が例外になることがある。後始末の例外を
+                    // 監視ループの外まで漏らすと、以後 iproxy が二度と起動せず、
+                    // iPhone 側で「接続」を押しても必ずタイムアウトしてしまう。
+                    // 後始末は個別に閉じ、次の再試行を必ず継続する。
+                    if (transport is not null)
+                    {
+                        try { await transport.DisposeAsync(); }
+                        catch (Exception ex)
+                        {
+                            _logger.Info("ConnectionServer",
+                                $"iOS USB transport cleanup failed: {FirstLine(ex.Message)}");
+                        }
+                    }
+
+                    if (tunnel is not null)
+                    {
+                        try { await tunnel.DisposeAsync(); }
+                        catch (Exception ex)
+                        {
+                            _logger.Info("ConnectionServer",
+                                $"iOS USB tunnel cleanup failed: {FirstLine(ex.Message)}");
+                        }
+                    }
                 }
 
                 try
