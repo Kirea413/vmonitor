@@ -591,17 +591,19 @@ public sealed class ConnectionServer
             {
                 IosUsbTunnel? tunnel = null;
                 WifiTransport? transport = null;
+                bool ownsOutboundState = false;
 
                 try
                 {
                     // Android USBや手動Wi-Fi接続の操作中には割り込まない。
-                    if (IsUsbConnected || IsOutboundConnected || IsOutboundBusy)
+                    if (IsUsbConnected || IsOutboundConnected || IsOutboundBusy || !_activeSessions.IsEmpty)
                     {
                         await Task.Delay(1000, ct);
                         continue;
                     }
 
                     tunnel = new IosUsbTunnel();
+                    ownsOutboundState = true;
                     int localPort = await tunnel.StartAsync(null, ct);
 
                     transport = new WifiTransport();
@@ -610,13 +612,8 @@ public sealed class ConnectionServer
                     await transport.ConnectPlainAsync(
                         new IPEndPoint(IPAddress.Loopback, localPort), connectCts.Token);
 
-                    // TcpClient の接続完了は「PC → iproxy のローカルソケット」が
-                    // 開いたことしか保証しない。iproxy が usbmuxd を通して端末の
-                    // 7980 番へ繋ぎ終わる前に最初のフレームを書くと、接続が
-                    // WSAECONNABORTED で閉じられる。実機では usbmuxd の
-                    // "Connect success" が少し遅れて返るため、端末側経路が
-                    // 落ち着いてから制御メッセージを送る。
-                    await Task.Delay(1000, connectCts.Token);
+                    // 端末までの到達確認は NegotiateConnectAsync の初期フレーム
+                    // 受信で行う。ローカルソケットの接続完了だけでは送信しない。
 
                     // iOS USB はPCから接続要求を先に届ける。iPhone側では
                     // 自動承認せず、「USB接続」ボタンが押された時点で accepted を
@@ -658,14 +655,14 @@ public sealed class ConnectionServer
                 }
                 finally
                 {
-                    _iosUsbSessionCts = null;
+                    if (ownsOutboundState) _iosUsbSessionCts = null;
 
                     // 接続要求の送信前に端末側の待受がまだ始まっていない場合、
                     // RunSessionAsync は Denied で戻る。その際に busy=true を
                     // 残すと、次の while が上のガードに入り続けて iproxy を
                     // 二度と張り直さない。iPhone のボタンはこの再試行を待って
                     // いるため、セッション終了ごとに必ず監視可能な状態へ戻す。
-                    SetOutboundState(
+                    if (ownsOutboundState) SetOutboundState(
                         "iPhone USB 接続待ち — iPhoneで「USB接続」を押してください",
                         connected: false,
                         busy: false);
@@ -1327,8 +1324,26 @@ public sealed class ConnectionServer
         // という待ち合いになって、どちらにもダイアログが出ないまま
         // 時間切れになっていた。
         if (pcInitiated)
+        {
+            Task<bool>? firstRead = null;
+            if (device.Platform == DevicePlatform.iOS &&
+                transportType == VMonitor.Core.Models.TransportType.USB)
+            {
+                // ローカルの iproxy ソケットが開いても、iPhoneへの転送が
+                // 完了したとは限らない。端末の hello を含む最初のフレームを
+                // 確認してから要求を送る。時間待ちで接続成立を推測しない。
+                firstRead = receiver.MoveNextAsync().AsTask();
+                if (await Task.WhenAny(firstRead, Task.Delay(TimeSpan.FromSeconds(10), ct)) != firstRead)
+                {
+                    _logger.Info("ConnectionServer", "iPhone USB: 端末からの初期フレーム待ちがタイムアウトしました");
+                    return (false, firstRead);
+                }
+                if (!await firstRead) return (false, null);
+                _logger.Info("ConnectionServer", "iPhone USB: 端末からの初期フレームを受信しました");
+            }
             return await AskDeviceAsync(
-                transport, receiver, null, transportType, runtime, ct);
+                transport, receiver, firstRead, transportType, runtime, ct);
+        }
 
         // まず「誰が繋ぎたいのか」を待つ。
         //
@@ -1686,6 +1701,7 @@ public sealed class ConnectionServer
             // hello は承認の返事より先に届くことがある。ここで拾わないと
             // PC 発信時だけ永続端末 ID が失われる。
             ReadConnectIdentity(data.Span, runtime);
+            await ReplyToPingAsync(transport, data, ct);
 
             var accepted = TryParseConnectResponse(data.Span);
             if (accepted is null) continue;

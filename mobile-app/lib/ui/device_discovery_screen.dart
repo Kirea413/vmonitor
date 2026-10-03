@@ -161,7 +161,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// 相手が決まっているので、別の PC からの割り込みを受ける必要がない。
   Future<void> _startListening() async {
     // 既に待っているなら二重に張らない
-    if (_listener != null) return;
+    if (_listener != null || _controlLink != null) return;
 
     final listener = WifiListenTransport();
     _listener = listener;
@@ -417,6 +417,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     // 引き継ぎの間に届いたものを預かる包みを噛ませる。
     final link = RelayTransport(rawLink);
 
+    _iosUsbRequestPending = false;
     _controlLink = link;
     _controlPeer = peer;
 
@@ -424,8 +425,12 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       (e) {
         if (e.channel == ChannelId.control) _onControlMessage(e.data);
       },
-      onError: (Object _) {},
-      onDone: _onControlLinkClosed,
+      onError: (Object _) {
+        if (identical(_controlLink, link)) _onControlLinkClosed();
+      },
+      onDone: () {
+        if (identical(_controlLink, link)) _onControlLinkClosed();
+      },
     );
 
     // 繋がった時点で名乗る。
