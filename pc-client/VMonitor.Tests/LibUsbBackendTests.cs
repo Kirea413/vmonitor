@@ -16,10 +16,14 @@ namespace VMonitor.Tests;
 public sealed class LibUsbBackendTests : IDisposable
 {
     private readonly Func<bool> _original = LibUsbBackend.UsbDkDetector;
+    private readonly Func<string?> _originalProbe = LibUsbBackend.UsbDkProbe;
+    private readonly Func<int> _originalSetter = LibUsbBackend.UsbDkOptionSetter;
 
     public void Dispose()
     {
         LibUsbBackend.UsbDkDetector = _original;
+        LibUsbBackend.UsbDkProbe = _originalProbe;
+        LibUsbBackend.UsbDkOptionSetter = _originalSetter;
         ResetDecision();
     }
 
@@ -32,6 +36,7 @@ public sealed class LibUsbBackendTests : IDisposable
 
         type.GetField("_decided",      flags)!.SetValue(null, false);
         type.GetField("_usbDkEnabled", flags)!.SetValue(null, false);
+        type.GetField("_fallbackReason", flags)!.SetValue(null, null);
     }
 
     [Fact]
@@ -74,5 +79,44 @@ public sealed class LibUsbBackendTests : IDisposable
         // libusb のオプションは文脈を作る前に決める必要がある。
         // 毎回調べ直すと、文脈を作るたびに判断が変わりうる。
         Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public void InstalledButUnusableUsbDk_DoesNotPoisonDefaultContext()
+    {
+        ResetDecision();
+        LibUsbBackend.UsbDkDetector = () => true;
+        LibUsbBackend.UsbDkProbe = () => "UsbDk初期化エラー -5";
+        int setters = 0;
+        LibUsbBackend.UsbDkOptionSetter = () => { setters++; return 0; };
+        LibUsbBackend.Prepare();
+        Assert.False(LibUsbBackend.IsUsbDkEnabled);
+        Assert.Equal(0, setters);
+        Assert.Contains("WinUSB", LibUsbBackend.Describe());
+        Assert.Contains("-5", LibUsbBackend.Describe());
+    }
+
+    [Fact]
+    public void WorkingUsbDk_IsEnabledOnlyAfterProbe()
+    {
+        ResetDecision();
+        LibUsbBackend.UsbDkDetector = () => true;
+        bool probed = false;
+        LibUsbBackend.UsbDkProbe = () => { probed = true; return null; };
+        LibUsbBackend.UsbDkOptionSetter = () => { Assert.True(probed); return 0; };
+        LibUsbBackend.Prepare();
+        Assert.True(LibUsbBackend.IsUsbDkEnabled);
+    }
+
+    [Fact]
+    public void ProbeThrows_FallsBackWithoutSettingGlobalOption()
+    {
+        ResetDecision();
+        LibUsbBackend.UsbDkDetector = () => true;
+        LibUsbBackend.UsbDkProbe = () => throw new EntryPointNotFoundException("libusb_init_context");
+        LibUsbBackend.UsbDkOptionSetter = () => throw new Exception("must not be called");
+        Assert.Null(Record.Exception(LibUsbBackend.Prepare));
+        Assert.False(LibUsbBackend.IsUsbDkEnabled);
+        Assert.Contains("libusb_init_context", LibUsbBackend.Describe());
     }
 }
