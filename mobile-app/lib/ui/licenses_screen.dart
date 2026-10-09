@@ -12,7 +12,7 @@ void showVMonitorLicenses(BuildContext context) {
   showLicensePage(
     context: context,
     applicationName: 'vmonitor',
-    applicationVersion: '1.2.8-beta',
+    applicationVersion: '1.2.9-beta',
     applicationLegalese: t.licensesThanks,
   );
 }

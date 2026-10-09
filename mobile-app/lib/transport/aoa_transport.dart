@@ -108,16 +108,14 @@ class AoaTransport implements Transport {
   ///
   /// `state` は attached / connected / detached / error のいずれか。
   static Stream<({String state, String? detail})> stateChanges() {
-    return _sharedStates ??= _states
-        .receiveBroadcastStream()
-        .map((dynamic event) {
-          final map = (event as Map).cast<Object?, Object?>();
-          return (
-            state: map['state'] as String? ?? 'unknown',
-            detail: map['detail'] as String?,
-          );
-        })
-        .asBroadcastStream();
+    return _sharedStates ??=
+        _states.receiveBroadcastStream().map((dynamic event) {
+      final map = (event as Map).cast<Object?, Object?>();
+      return (
+        state: map['state'] as String? ?? 'unknown',
+        detail: map['detail'] as String?,
+      );
+    }).asBroadcastStream();
   }
 
   // ─── 接続 ─────────────────────────────────────────────────────────────
@@ -130,28 +128,37 @@ class AoaTransport implements Transport {
   Future<void> connect(String host, int port) async {
     if (_connected) return;
 
+    // ネイティブのconnectは読み出しスレッドを開始する。先に購読しておき、
+    // PCから直ちに届くpong/承認フレームを取りこぼさない。
+    _receiveController =
+        StreamController<({ChannelId channel, Uint8List data})>();
+    _frameSubscription = _frames.receiveBroadcastStream().listen(
+          _onFrame,
+          onError: (Object error) => _receiveController?.addError(error),
+          onDone: () => _receiveController?.close(),
+        );
+
     final Map<Object?, Object?>? info;
 
     try {
       info = await _method.invokeMethod<Map<Object?, Object?>>('connect');
     } on PlatformException catch (e) {
+      await _frameSubscription?.cancel();
+      _frameSubscription = null;
+      unawaited(_receiveController?.close());
+      _receiveController = null;
       throw StateError('USB 接続に失敗しました: ${e.message ?? e.code}');
     } on MissingPluginException {
+      await _frameSubscription?.cancel();
+      _frameSubscription = null;
+      unawaited(_receiveController?.close());
+      _receiveController = null;
       throw StateError('この端末では USB 直結を利用できません。');
     }
 
     accessoryDescription = info == null
         ? null
         : '${info['manufacturer'] ?? '?'} / ${info['model'] ?? '?'}';
-
-    _receiveController =
-        StreamController<({ChannelId channel, Uint8List data})>.broadcast();
-
-    _frameSubscription = _frames.receiveBroadcastStream().listen(
-      _onFrame,
-      onError: (Object error) => _receiveController?.addError(error),
-      onDone: () => _receiveController?.close(),
-    );
 
     // ケーブルが抜かれても、映像やタッチのチャンネルは終わりを通知してこない。
     // 状態通知を見て、こちらから受信ストリームを閉じる。
@@ -181,7 +188,7 @@ class AoaTransport implements Transport {
     await _stateSubscription?.cancel();
     _stateSubscription = null;
 
-    await _receiveController?.close();
+    unawaited(_receiveController?.close());
     _receiveController = null;
 
     try {
@@ -232,8 +239,8 @@ class AoaTransport implements Transport {
 
     if (data == null) return;
 
-    final channel = ChannelId
-        .values[channelIndex.clamp(0, ChannelId.values.length - 1)];
+    final channel =
+        ChannelId.values[channelIndex.clamp(0, ChannelId.values.length - 1)];
 
     _receiveController?.add((channel: channel, data: data));
   }

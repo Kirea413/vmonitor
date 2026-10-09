@@ -75,6 +75,7 @@ public sealed class ConnectionServer
             System.Diagnostics.Stopwatch.StartNew();
         public long LastPongMs;
         public long TouchEventCount;
+        public bool ExplicitlyDenied;
     }
 
     /// <summary>ディスプレイ設定を反映する。繋がっていればその場で作り直す。</summary>
@@ -1382,6 +1383,10 @@ public sealed class ConnectionServer
 
         var authResult = await _authManager.RequestAuthorizationAsync(authorizationDevice);
         bool approved  = authResult != AuthResult.Denied;
+        runtime.ExplicitlyDenied = !approved;
+        _logger.Info("ConnectionServer", approved
+            ? $"接続を許可しました: {authorizationDevice.Name}"
+            : $"PCの確認画面で接続を拒否しました: {authorizationDevice.Name}");
 
         // 返事を相手にも伝える。スマホは「PC の承認を待っています」で
         // 止まっているので、伝えないとそのまま待ち続ける。
@@ -1708,6 +1713,7 @@ public sealed class ConnectionServer
 
             if (accepted == false)
             {
+                runtime.ExplicitlyDenied = true;
                 _logger.Info("ConnectionServer", "スマホ側で拒否されました");
                 SetSessionTransportState(runtime, transportType,
                     "スマホ側で拒否されました", connected: false);
@@ -1971,6 +1977,9 @@ public sealed class ConnectionServer
         /// <summary>最後まで動いて切断された。</summary>
         Completed,
 
+        /// <summary>通信が途切れた、または承認の応答が届かなかった。</summary>
+        Failed,
+
         /// <summary>利用者が接続を拒否した。</summary>
         Denied,
     }
@@ -2048,8 +2057,8 @@ public sealed class ConnectionServer
 
             if (!approved)
             {
-                _logger.Info("ConnectionServer", $"Connection denied: {remoteEp}");
-                outcome = SessionOutcome.Denied;
+                outcome = runtime.ExplicitlyDenied ? SessionOutcome.Denied : SessionOutcome.Failed;
+                _logger.Info("ConnectionServer", $"Connection {outcome}: {remoteEp}");
                 return outcome;
             }
 

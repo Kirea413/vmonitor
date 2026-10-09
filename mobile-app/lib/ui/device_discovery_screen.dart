@@ -366,7 +366,9 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   StreamSubscription<({ChannelId channel, Uint8List data})>? _controlSub;
 
   /// PC の承認を待っている間の待ち合わせ。
-  Completer<bool>? _pendingApproval;
+  Completer<bool?>? _pendingApproval;
+
+  Future<void>? _openingUsbLink;
 
   /// 承認のダイアログを二重に出さないための札。
   bool _approvalDialogOpen = false;
@@ -375,7 +377,13 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   bool _iosUsbRequestPending = false;
 
   /// USB の通信路を開き、PC からの要求を聞けるようにする。
-  Future<void> _openUsbLink() async {
+  Future<void> _openUsbLink() {
+    return _openingUsbLink ??= _openUsbLinkOnce().whenComplete(() {
+      _openingUsbLink = null;
+    });
+  }
+
+  Future<void> _openUsbLinkOnce() async {
     if (_controlLink != null) return; // 既に開いている
 
     final link = AoaTransport();
@@ -387,7 +395,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       return;
     }
 
-    if (!mounted) {
+    if (!mounted || _screenState != _ScreenState.idle || _controlLink != null) {
       await link.disconnect();
       return;
     }
@@ -487,7 +495,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
 
     // 待っている人がいれば起こす
     final pending = _pendingApproval;
-    if (pending != null && !pending.isCompleted) pending.complete(false);
+    if (pending != null && !pending.isCompleted) pending.complete(null);
     _pendingApproval = null;
 
     setState(() {});
@@ -686,6 +694,10 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
   /// 押した側の反対で承認を取る。PC を触っている人に断りなく
   /// その画面を持っていかないため。
   Future<void> _connectUsbDirect() async {
+    _connectingDevice = null;
+    if (_controlLink != null && _controlLink!.type != TransportType.usb) {
+      await _closeControlLink();
+    }
     await _openUsbLink();
 
     final link = _controlLink;
@@ -696,7 +708,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       return;
     }
 
-    final pending = Completer<bool>();
+    final pending = Completer<bool?>();
     _pendingApproval = pending;
 
     setState(() => _screenState = _ScreenState.waitingApproval);
@@ -714,16 +726,23 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     }
 
     // 待ちっぱなしにしない。PC の前に人がいないこともある。
-    bool approved;
+    bool? approved;
     try {
       approved = await pending.future.timeout(_approvalTimeout);
     } catch (_) {
-      approved = false;
+      approved = null;
     }
 
     _pendingApproval = null;
 
     if (!mounted) return;
+
+    if (approved == null) {
+      await _closeControlLink();
+      if (!mounted) return;
+      setState(() => _screenState = _ScreenState.timedOut);
+      return;
+    }
 
     if (!approved) {
       setState(() => _screenState = _ScreenState.idle);
@@ -860,6 +879,10 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     // 繋いでいる間は待ち受けを畳む
     await _stopListening();
 
+    // AOAの待機制御路を残すと、Wi-Fi用の購読に置き換えた後も
+    // 古いUSBの応答が同じ承認待ちを完了させてしまう。
+    await _closeControlLink();
+
     final transport = _transportFactory();
 
     try {
@@ -883,7 +906,7 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
     final link = _controlLink;
     if (link == null) return;
 
-    final pending = Completer<bool>();
+    final pending = Completer<bool?>();
     _pendingApproval = pending;
 
     setState(() => _screenState = _ScreenState.waitingApproval);
@@ -901,16 +924,23 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
       return;
     }
 
-    bool approved;
+    bool? approved;
     try {
       approved = await pending.future.timeout(_approvalTimeout);
     } catch (_) {
-      approved = false;
+      approved = null;
     }
 
     _pendingApproval = null;
 
     if (!mounted) return;
+
+    if (approved == null) {
+      await _closeControlLink();
+      if (!mounted) return;
+      setState(() => _screenState = _ScreenState.timedOut);
+      return;
+    }
 
     if (!approved) {
       await _closeControlLink();
@@ -1173,8 +1203,8 @@ class _DeviceDiscoveryScreenState extends State<DeviceDiscoveryScreen> {
         FilledButton.icon(
           icon: const Icon(Icons.usb),
           label: Text(t.usbConnect),
-          // 相手が応答しているときだけ押せる。
-          onPressed: (_usbAttached && _pcAlive) ? _connectUsbDirect : null,
+          // AOAが見えていれば押せる。生存確認を受信できない状態でも再試行する。
+          onPressed: _usbAttached ? _connectUsbDirect : null,
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(44),
           ),
