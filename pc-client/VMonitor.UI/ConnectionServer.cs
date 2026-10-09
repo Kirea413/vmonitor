@@ -1480,6 +1480,16 @@ public sealed class ConnectionServer
 
                 ReadConnectIdentity(data.Span, runtime);
 
+                if (transportType == VMonitor.Core.Models.TransportType.USB && IsDeviceHello(data.Span))
+                {
+                    await transport.SendAsync(
+                        System.Text.Encoding.UTF8.GetBytes("{\"type\":\"usb_ready\"}"),
+                        ChannelId.Control, ct);
+                    SetSessionTransportState(runtime, transportType,
+                        "USB通信を確認しました — タブレットで「USB接続」を押してください", connected: false);
+                    _logger.Info("ConnectionServer", "Android USB: 端末の準備完了通知を受信し、usb_readyを返信しました");
+                }
+
                 // 呼び名を名乗ってくることがある。拾えるうちに拾っておく。
                 var announced = TryParseHelloName(data.Span);
 
@@ -1598,6 +1608,17 @@ public sealed class ConnectionServer
         {
             return false;
         }
+    }
+
+    private static bool IsDeviceHello(ReadOnlySpan<byte> payload)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(payload.ToArray());
+            return document.RootElement.TryGetProperty("type", out var type) &&
+                   type.GetString() == "hello";
+        }
+        catch { return false; }
     }
 
     /// <summary>接続要求に含まれる永続端末IDと表示情報を取り込む。</summary>

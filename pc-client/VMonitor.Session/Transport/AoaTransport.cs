@@ -119,7 +119,7 @@ public sealed class AoaTransport : ITransport, IAsyncDisposable
                                     or AoaDevice.SwitchOutcome.AlreadyInAccessoryMode))
             {
                 throw new InvalidOperationException(
-                    "USB 直結できる端末が見つかりませんでした。\n" + result.Detail
+                    "USB 直結できませんでした: " + result.Detail
                     + DescribeEnvironment());
             }
 
@@ -563,16 +563,20 @@ public sealed class AoaTransport : ITransport, IAsyncDisposable
 
     /// <summary>
     /// Android 端末らしいかどうか。
-    /// 開けること（＝WinUSB 系に束縛されていること）を条件に入れているのは、
-    /// 開けないデバイスにはどのみち AOA の問い合わせすらできないため。
+    /// 存在判定と開けるかどうかは分ける。開けない端末も候補として扱い、
+    /// 接続時にドライバ束縛の理由を表示する。
     /// </summary>
-    private static bool IsLikelyAndroid(AoaDevice.UsbDeviceSummary device)
-        => device.Openable && AndroidVendorIds.Contains(device.VendorId);
+    internal static bool IsLikelyAndroid(AoaDevice.UsbDeviceSummary device)
+        => device.InAccessoryMode || IsKnownAndroidVendor(device.VendorId);
+
+    internal static bool IsKnownAndroidVendor(int vendorId)
+        => AndroidVendorIds.Contains(vendorId);
 
     /// <summary>Android 端末でよく使われるベンダー ID。</summary>
     private static readonly int[] AndroidVendorIds =
     {
         0x18D1, // Google
+        0x1782, // BMAX I10 Plus: reported hardware ID VID_1782/PID_4003
         0x04E8, // Samsung
         0x22B8, // Motorola
         0x12D1, // Huawei

@@ -314,8 +314,8 @@ public sealed class AoaDevice : IDisposable
                 if (!device.TryOpen())
                 {
                     // 開けないデバイスは Android ではないか、別ドライバの持ち物。
-                    // ただし Google の VID なら Android なので、理由を伝える。
-                    if (vendorId == GoogleVendorId)
+                    // 対応候補の端末はメーカーに関係なく、開けない理由を伝える。
+                    if (AoaTransport.IsKnownAndroidVendor(vendorId))
                         failures.Add($"{label}: {OpenFailureHint()}");
 
                     continue;
