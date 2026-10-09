@@ -112,6 +112,8 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged
             if (mainWindow != null)
             {
                 // バックグラウンドにいる場合でも最前面に持ってくる
+                if (!mainWindow.IsVisible)
+                    mainWindow.Show();
                 if (mainWindow.WindowState == WindowState.Minimized)
                     mainWindow.WindowState = WindowState.Normal;
                 mainWindow.Activate();
